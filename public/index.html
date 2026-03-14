@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Team Maker</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Team Maker</h1>
+    <div id="header-actions">
+      <span id="session-count">0 instances</span>
+      <button id="new-tab-btn" title="New Claude Code instance">+ New Instance</button>
+    </div>
+  </header>
+  <nav id="tab-bar"></nav>
+  <main id="terminal-container">
+    <div id="empty-state">
+      <p>No instances running</p>
+      <p>Click <strong>+ New Instance</strong> to start a Claude Code session</p>
+    </div>
+  </main>
+  <!-- New Instance Modal -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>New Claude Code Instance</h2>
+      <label for="path-input">Working Directory</label>
+      <div class="path-row">
+        <input type="text" id="path-input" placeholder="e.g. /Users/you/project" spellcheck="false" />
+        <button id="browse-btn" title="Browse in Finder">Browse</button>
+      </div>
+      <p class="path-hint">Leave empty to use home directory</p>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="modal-btn secondary">Cancel</button>
+        <button id="modal-start" class="modal-btn primary">Start Session</button>
+      </div>
+    </div>
+  </div>
+
+  <footer id="status-bar">
+    <span id="status-text">Ready</span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

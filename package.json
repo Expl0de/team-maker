@@ -1,0 +1,15 @@
+{
+  "name": "team-maker",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Web-based manager for multiple Claude Code CLI instances",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "node-pty": "^0.10.1",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.0"
+  }
+}
