@@ -30,8 +30,8 @@ app.get("/api/browse-folder", async (req, res) => {
 
 // REST API
 app.post("/api/sessions", (req, res) => {
-  const { name, cwd } = req.body || {};
-  const session = sessionManager.create({ name, cwd });
+  const { name, cwd, autoAccept, initialPrompt } = req.body || {};
+  const session = sessionManager.create({ name, cwd, autoAccept, initialPrompt });
   res.json(session.toJSON());
 });
 

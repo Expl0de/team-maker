@@ -32,6 +32,13 @@
         <button id="browse-btn" title="Browse in Finder">Browse</button>
       </div>
       <p class="path-hint">Leave empty to use home directory</p>
+      <div class="checkbox-row">
+        <input type="checkbox" id="auto-accept" checked />
+        <label for="auto-accept">Auto-accept permissions (<code>--permission-mode auto</code>)</label>
+      </div>
+      <label for="prompt-input">Initial Prompt <span class="optional">(optional)</span></label>
+      <textarea id="prompt-input" rows="3" placeholder="e.g. Review the codebase and suggest improvements" spellcheck="false"></textarea>
+      <p class="path-hint">If provided, this prompt will be sent automatically after Claude starts</p>
       <div class="modal-actions">
         <button id="modal-cancel" class="modal-btn secondary">Cancel</button>
         <button id="modal-start" class="modal-btn primary">Start Session</button>

@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
 
 class Session {
-  constructor({ id, name, cwd }) {
+  constructor({ id, name, cwd, autoAccept, initialPrompt }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
@@ -16,13 +16,26 @@ class Session {
     this.usage = { bytesIn: 0, bytesOut: 0 };
 
     const claudePath = process.env.CLAUDE_PATH || "/Users/tung/.local/bin/claude";
-    this.pty = pty.spawn(claudePath, [], {
+    const args = [];
+    if (autoAccept) args.push("--permission-mode", "auto");
+
+    this.pty = pty.spawn(claudePath, args, {
       name: "xterm-256color",
       cols: 120,
       rows: 30,
       cwd: cwd || process.env.HOME,
       env: { ...process.env, TERM: "xterm-256color" },
     });
+
+    // Auto-accept the workspace trust dialog
+    if (autoAccept) {
+      this._autoAcceptTrust();
+    }
+
+    // If an initial prompt is provided, send it after Claude starts up
+    if (initialPrompt) {
+      this._injectPrompt(initialPrompt);
+    }
 
     this.pty.onData((data) => {
       this.usage.bytesOut += data.length;
@@ -46,6 +59,26 @@ class Session {
         } catch {}
       }
     });
+  }
+
+  _autoAcceptTrust() {
+    // The workspace trust dialog appears on first launch in a directory.
+    // Send Enter after a short delay to accept it.
+    setTimeout(() => {
+      if (this.status === "running") {
+        this.pty.write("\r");
+      }
+    }, 2000);
+  }
+
+  _injectPrompt(prompt) {
+    // Claude Code TUI continuously renders, so we wait a fixed delay
+    // for the CLI to finish startup before typing the prompt
+    setTimeout(() => {
+      if (this.status === "running") {
+        this.pty.write(prompt + "\r");
+      }
+    }, 5000);
   }
 
   write(data) {
@@ -100,11 +133,11 @@ class SessionManager {
     this.instanceCounter = 0;
   }
 
-  create({ name, cwd } = {}) {
+  create({ name, cwd, autoAccept, initialPrompt } = {}) {
     const id = uuidv4();
     this.instanceCounter++;
     const sessionName = name || `Instance ${this.instanceCounter}`;
-    const session = new Session({ id, name: sessionName, cwd });
+    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt });
     this.sessions.set(id, session);
     return session;
   }

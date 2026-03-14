@@ -12,6 +12,8 @@ const pathInput = document.getElementById("path-input");
 const browseBtn = document.getElementById("browse-btn");
 const modalCancel = document.getElementById("modal-cancel");
 const modalStart = document.getElementById("modal-start");
+const autoAcceptCheckbox = document.getElementById("auto-accept");
+const promptInput = document.getElementById("prompt-input");
 
 function getWsUrl() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -62,6 +64,8 @@ function createTerminal(containerEl) {
 
 function showNewInstanceModal() {
   pathInput.value = "";
+  promptInput.value = "";
+  autoAcceptCheckbox.checked = true;
   modalOverlay.classList.remove("hidden");
   pathInput.focus();
 }
@@ -95,6 +99,9 @@ async function createNewInstance(cwd) {
   try {
     const body = {};
     if (cwd && cwd.trim()) body.cwd = cwd.trim();
+    body.autoAccept = autoAcceptCheckbox.checked;
+    const prompt = promptInput.value.trim();
+    if (prompt) body.initialPrompt = prompt;
     const res = await fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -424,6 +431,10 @@ modalCancel.addEventListener("click", hideModal);
 modalStart.addEventListener("click", () => createNewInstance(pathInput.value));
 pathInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") createNewInstance(pathInput.value);
+  if (e.key === "Escape") hideModal();
+});
+promptInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) createNewInstance(pathInput.value);
   if (e.key === "Escape") hideModal();
 });
 modalOverlay.addEventListener("click", (e) => {
