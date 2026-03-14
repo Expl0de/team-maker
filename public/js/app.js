@@ -1,6 +1,41 @@
 const sessions = new Map();
 let activeSessionId = null;
 
+// Alert sound using Web Audio API (no audio file needed)
+let audioCtx = null;
+function playAlertSound() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = "sine";
+  // Two-tone alert: high then low
+  osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+  osc.frequency.setValueAtTime(660, audioCtx.currentTime + 0.15);
+  gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+  osc.start(audioCtx.currentTime);
+  osc.stop(audioCtx.currentTime + 0.3);
+}
+
+function handleQuestionAlert(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  // Play sound
+  playAlertSound();
+
+  // Flash the tab's status dot yellow if it's not the active (focused) tab
+  const dot = session.tabEl.querySelector(".status-dot");
+  dot.classList.add("question");
+
+  // Clear the flash when the user switches to that tab
+  if (sessionId === activeSessionId && document.hasFocus()) {
+    setTimeout(() => dot.classList.remove("question"), 3000);
+  }
+}
+
 const tabBar = document.getElementById("tab-bar");
 const terminalContainer = document.getElementById("terminal-container");
 const emptyState = document.getElementById("empty-state");
@@ -171,6 +206,10 @@ async function createNewInstance(cwd) {
             terminal.write(`\r\nError: ${msg.message}\r\n`);
             return;
           }
+          if (msg.type === "question") {
+            handleQuestionAlert(msg.sessionId);
+            return;
+          }
         } catch {
           // Not JSON, it's terminal data
         }
@@ -224,6 +263,10 @@ function reconnect(sessionId) {
           session.tabEl.querySelector(".status-dot").classList.add("exited");
           return;
         }
+        if (msg.type === "question") {
+          handleQuestionAlert(msg.sessionId);
+          return;
+        }
         if (msg.type === "attached" || msg.type === "error") return;
       } catch {}
     }
@@ -259,9 +302,10 @@ function switchTab(sessionId) {
   // Hide empty state
   emptyState.style.display = "none";
 
-  // Fit terminal
+  // Fit terminal and clear question alert
   const session = sessions.get(sessionId);
   if (session) {
+    session.tabEl.querySelector(".status-dot").classList.remove("question");
     setTimeout(() => {
       session.fitAddon.fit();
       sendResize(session);
@@ -363,6 +407,10 @@ async function loadExistingSessions() {
             if (msg.type === "exit") {
               session.status = "exited";
               tab.querySelector(".status-dot").classList.add("exited");
+              return;
+            }
+            if (msg.type === "question") {
+              handleQuestionAlert(msg.sessionId);
               return;
             }
             if (msg.type === "attached" || msg.type === "error") return;

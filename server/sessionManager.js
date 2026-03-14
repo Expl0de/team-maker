@@ -2,6 +2,34 @@ import pty from "node-pty";
 import { v4 as uuidv4 } from "uuid";
 
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
+const PLAIN_BUFFER_SIZE = 2048; // rolling buffer for pattern detection
+
+// Strip ANSI escape sequences and control characters from terminal data
+function stripAnsi(str) {
+  return str
+    // CSI sequences: ESC [ ... final_byte
+    .replace(/\x1b\[[\x20-\x3f]*[\x30-\x3f]*[\x40-\x7e]/g, "")
+    // OSC sequences: ESC ] ... (ST or BEL)
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    // ESC + single char (e.g. ESC =, ESC >)
+    .replace(/\x1b[\x20-\x7e]/g, "")
+    // Remaining lone ESC
+    .replace(/\x1b/g, "")
+    // Control chars except newline/tab
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+}
+
+// Patterns that indicate Claude Code is asking a question / waiting for input
+const QUESTION_PATTERNS = [
+  /do you want/i,
+  /allow once/i,
+  /allow always/i,
+  /\(y\/n\)/i,
+  /\byes\b.*\bno\b/i,
+  /\bdeny\b/i,
+  /\breject\b/i,
+  /\ballow\b.*\bdeny\b/i,
+];
 
 class Session {
   constructor({ id, name, cwd, autoAccept, initialPrompt }) {
@@ -14,6 +42,8 @@ class Session {
     this.scrollback = "";
     this.clients = new Set();
     this.usage = { bytesIn: 0, bytesOut: 0 };
+    this._lastQuestionAlert = 0; // debounce timestamp
+    this._plainBuffer = ""; // rolling buffer of stripped text for pattern matching
 
     const claudePath = process.env.CLAUDE_PATH || "/Users/tung/.local/bin/claude";
     const args = [];
@@ -43,6 +73,29 @@ class Session {
       if (this.scrollback.length > MAX_SCROLLBACK) {
         this.scrollback = this.scrollback.slice(-MAX_SCROLLBACK);
       }
+
+      // Accumulate stripped text into rolling buffer for pattern detection
+      this._plainBuffer += stripAnsi(data);
+      if (this._plainBuffer.length > PLAIN_BUFFER_SIZE) {
+        this._plainBuffer = this._plainBuffer.slice(-PLAIN_BUFFER_SIZE);
+      }
+
+      // Check for question/dialog patterns (debounced to 3s)
+      const now = Date.now();
+      if (now - this._lastQuestionAlert > 3000) {
+        const matched = QUESTION_PATTERNS.find((re) => re.test(this._plainBuffer));
+        if (matched) {
+          this._lastQuestionAlert = now;
+          // Clear buffer so same text doesn't re-trigger
+          this._plainBuffer = "";
+          for (const ws of this.clients) {
+            try {
+              ws.send(JSON.stringify({ type: "question", sessionId: this.id }));
+            } catch {}
+          }
+        }
+      }
+
       for (const ws of this.clients) {
         try {
           ws.send(data);
