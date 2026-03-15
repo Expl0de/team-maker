@@ -15,6 +15,7 @@ class Team {
     this.prompt = prompt;
     this.mainAgentId = null;
     this.agentIds = [];
+    this.agentCounter = 0;
     this.createdAt = new Date();
   }
 
@@ -67,7 +68,7 @@ Break this down, spawn specialist agents, and coordinate them.`;
 
     // Spawn main agent session
     const session = sessionManager.create({
-      name: `${name} (Main)`,
+      name,
       cwd,
       autoAccept: true,
       initialPrompt: orchestratorPrompt,
@@ -94,13 +95,15 @@ Break this down, spawn specialist agents, and coordinate them.`;
     const team = this.teams.get(teamId);
     if (!team) return null;
 
+    team.agentCounter++;
     const session = sessionManager.create({
-      name: `${name}`,
+      name,
       cwd: team.cwd,
       autoAccept: true,
       initialPrompt: prompt,
       teamId,
       role: "agent",
+      agentIndex: team.agentCounter,
     });
 
     team.agentIds.push(session.id);

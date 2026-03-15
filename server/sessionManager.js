@@ -33,12 +33,13 @@ const QUESTION_PATTERNS = [
 ];
 
 class Session {
-  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, mcpConfigPath }) {
+  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
     this.teamId = teamId || null;
     this.role = role || null; // "main" | "agent"
+    this.agentIndex = agentIndex || null;
     this.status = "running";
     this.exitCode = null;
     this.createdAt = new Date();
@@ -249,6 +250,7 @@ class Session {
       cwd: this.cwd,
       teamId: this.teamId,
       role: this.role,
+      agentIndex: this.agentIndex,
       usage: {
         bytesIn: this.usage.bytesIn,
         bytesOut: this.usage.bytesOut,
@@ -265,11 +267,11 @@ class SessionManager {
     this.instanceCounter = 0;
   }
 
-  create({ name, cwd, autoAccept, initialPrompt, teamId, role, mcpConfigPath } = {}) {
+  create({ name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath } = {}) {
     const id = uuidv4();
     this.instanceCounter++;
     const sessionName = name || `Instance ${this.instanceCounter}`;
-    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, mcpConfigPath });
+    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath });
     this.sessions.set(id, session);
     return session;
   }

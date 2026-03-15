@@ -193,11 +193,18 @@ function attachSession(data) {
   const tab = document.createElement("div");
   tab.className = "tab";
   tab.dataset.id = data.id;
-  const roleLabel = data.role === "main" ? '<span class="role-badge">main</span>' : '<span class="role-badge agent">🤖</span>';
+  let roleHtml = "";
+  if (data.role === "main") {
+    roleHtml = '<span class="role-badge">🤖 main</span>';
+  } else if (data.role === "agent") {
+    roleHtml = `<span class="role-badge agent">🤖 ${data.agentIndex || "?"}</span>`;
+  }
+  // Strip redundant "Agent N - " prefix since the badge already shows the number
+  const displayName = data.name.replace(/^Agent\s*\d+\s*[-–—]\s*/i, "");
   tab.innerHTML = `
     <span class="status-dot ${data.status === "exited" ? "exited" : ""}"></span>
-    ${roleLabel}
-    <span class="tab-name">${data.name}</span>
+    ${roleHtml}
+    <span class="tab-name">${displayName}</span>
     <button class="close-btn" title="Close agent">&times;</button>
   `;
   tab.addEventListener("click", (e) => {
