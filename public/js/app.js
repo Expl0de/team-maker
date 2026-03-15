@@ -193,7 +193,7 @@ function attachSession(data) {
   const tab = document.createElement("div");
   tab.className = "tab";
   tab.dataset.id = data.id;
-  const roleLabel = data.role === "main" ? '<span class="role-badge">main</span>' : "";
+  const roleLabel = data.role === "main" ? '<span class="role-badge">main</span>' : '<span class="role-badge agent">🤖</span>';
   tab.innerHTML = `
     <span class="status-dot ${data.status === "exited" ? "exited" : ""}"></span>
     ${roleLabel}

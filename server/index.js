@@ -161,6 +161,8 @@ wss.on("connection", (ws) => {
           ws.send(session.scrollback);
         }
         ws.send(JSON.stringify({ type: "attached", sessionId: session.id }));
+        // Send current activity state so the client shows the correct indicator
+        ws.send(JSON.stringify({ type: "activity", sessionId: session.id, active: session._active }));
         break;
       }
       case "resize": {

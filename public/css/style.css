@@ -265,6 +265,13 @@ header h1 {
   color: #cba6f7;
 }
 
+.tab .role-badge.agent {
+  font-size: 13px;
+  padding: 0 2px;
+  background: none;
+  line-height: 1;
+}
+
 .tab .close-btn {
   background: none;
   border: none;
