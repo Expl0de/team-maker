@@ -1,7 +1,9 @@
-const sessions = new Map();
+const teams = new Map(); // teamId -> { id, name, agentIds[] }
+const sessions = new Map(); // sessionId -> { id, name, teamId, role, terminal, fitAddon, ws, tabEl, wrapperEl, status }
+let activeTeamId = null;
 let activeSessionId = null;
 
-// Alert sound using Web Audio API (no audio file needed)
+// Alert sound using Web Audio API
 let audioCtx = null;
 function playAlertSound() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -10,7 +12,6 @@ function playAlertSound() {
   osc.connect(gain);
   gain.connect(audioCtx.destination);
   osc.type = "sine";
-  // Two-tone alert: high then low
   osc.frequency.setValueAtTime(880, audioCtx.currentTime);
   osc.frequency.setValueAtTime(660, audioCtx.currentTime + 0.15);
   gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
@@ -22,33 +23,39 @@ function playAlertSound() {
 function handleQuestionAlert(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
-
-  // Play sound
   playAlertSound();
-
-  // Flash the tab's status dot yellow if it's not the active (focused) tab
   const dot = session.tabEl.querySelector(".status-dot");
   dot.classList.add("question");
-
-  // Clear the flash when the user switches to that tab
   if (sessionId === activeSessionId && document.hasFocus()) {
     setTimeout(() => dot.classList.remove("question"), 3000);
   }
 }
 
+// DOM elements
 const tabBar = document.getElementById("tab-bar");
 const terminalContainer = document.getElementById("terminal-container");
 const emptyState = document.getElementById("empty-state");
-const newTabBtn = document.getElementById("new-tab-btn");
+const newTeamBtn = document.getElementById("new-team-btn");
+const newAgentBtn = document.getElementById("new-agent-btn");
 const sessionCount = document.getElementById("session-count");
 const statusText = document.getElementById("status-text");
+const teamList = document.getElementById("team-list");
+
+// Team modal elements
 const modalOverlay = document.getElementById("modal-overlay");
+const teamNameInput = document.getElementById("team-name-input");
 const pathInput = document.getElementById("path-input");
 const browseBtn = document.getElementById("browse-btn");
 const modalCancel = document.getElementById("modal-cancel");
 const modalStart = document.getElementById("modal-start");
-const autoAcceptCheckbox = document.getElementById("auto-accept");
 const promptInput = document.getElementById("prompt-input");
+
+// Agent modal elements
+const agentModalOverlay = document.getElementById("agent-modal-overlay");
+const agentNameInput = document.getElementById("agent-name-input");
+const agentPromptInput = document.getElementById("agent-prompt-input");
+const agentModalCancel = document.getElementById("agent-modal-cancel");
+const agentModalStart = document.getElementById("agent-modal-start");
 
 function getWsUrl() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -86,160 +93,191 @@ function createTerminal(containerEl) {
 
   const fitAddon = new FitAddon.FitAddon();
   const webLinksAddon = new WebLinksAddon.WebLinksAddon();
-
   terminal.loadAddon(fitAddon);
   terminal.loadAddon(webLinksAddon);
   terminal.open(containerEl);
-
-  // Small delay to ensure DOM is ready before fitting
   setTimeout(() => fitAddon.fit(), 50);
-
   return { terminal, fitAddon };
 }
 
-function showNewInstanceModal() {
-  pathInput.value = "";
-  promptInput.value = "";
-  autoAcceptCheckbox.checked = true;
-  modalOverlay.classList.remove("hidden");
-  pathInput.focus();
-}
+// --- Sidebar ---
 
-function hideModal() {
-  modalOverlay.classList.add("hidden");
-}
-
-async function browseForFolder() {
-  browseBtn.disabled = true;
-  browseBtn.textContent = "Opening...";
-  try {
-    const res = await fetch("/api/browse-folder");
-    const data = await res.json();
-    if (!data.cancelled && data.path) {
-      pathInput.value = data.path;
+function renderTeamItem(team) {
+  const el = document.createElement("div");
+  el.className = "team-item";
+  el.dataset.teamId = team.id;
+  el.innerHTML = `
+    <div class="team-item-info">
+      <span class="team-item-name">${team.name}</span>
+      <span class="team-item-badge">${team.agentIds.length} agent${team.agentIds.length !== 1 ? "s" : ""}</span>
+    </div>
+    <button class="delete-team-btn" title="Delete team">&times;</button>
+  `;
+  el.addEventListener("click", (e) => {
+    if (!e.target.classList.contains("delete-team-btn")) {
+      selectTeam(team.id);
     }
-  } catch (err) {
-    statusText.textContent = `Browse error: ${err.message}`;
-  } finally {
-    browseBtn.disabled = false;
-    browseBtn.textContent = "Browse";
-  }
+  });
+  el.querySelector(".delete-team-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    deleteTeam(team.id);
+  });
+  return el;
 }
 
-async function createNewInstance(cwd) {
-  hideModal();
-  newTabBtn.disabled = true;
-  statusText.textContent = "Starting new instance...";
+function updateTeamBadge(teamId) {
+  const team = teams.get(teamId);
+  if (!team) return;
+  const el = teamList.querySelector(`[data-team-id="${teamId}"]`);
+  if (!el) return;
+  const badge = el.querySelector(".team-item-badge");
+  badge.textContent = `${team.agentIds.length} agent${team.agentIds.length !== 1 ? "s" : ""}`;
+}
 
-  try {
-    const body = {};
-    if (cwd && cwd.trim()) body.cwd = cwd.trim();
-    body.autoAccept = autoAcceptCheckbox.checked;
-    const prompt = promptInput.value.trim();
-    if (prompt) body.initialPrompt = prompt;
-    const res = await fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
+function selectTeam(teamId) {
+  activeTeamId = teamId;
 
-    // Create tab
-    const tab = document.createElement("div");
-    tab.className = "tab";
-    tab.dataset.id = data.id;
-    tab.innerHTML = `
-      <span class="status-dot"></span>
-      <span class="tab-name">${data.name}</span>
-      <button class="close-btn" title="Close instance">&times;</button>
-    `;
-    tab.addEventListener("click", (e) => {
-      if (!e.target.classList.contains("close-btn")) {
-        switchTab(data.id);
-      }
-    });
-    tab.querySelector(".close-btn").addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeTab(data.id);
-    });
-    tabBar.appendChild(tab);
+  // Update sidebar active state
+  teamList.querySelectorAll(".team-item").forEach((el) => {
+    el.classList.toggle("active", el.dataset.teamId === teamId);
+  });
 
-    // Create terminal container
-    const wrapper = document.createElement("div");
-    wrapper.className = "terminal-wrapper";
-    wrapper.dataset.id = data.id;
-    terminalContainer.appendChild(wrapper);
+  // Enable/disable new agent button
+  newAgentBtn.disabled = !teamId;
 
-    const { terminal, fitAddon } = createTerminal(wrapper);
+  // Show only tabs for this team, hide others
+  tabBar.querySelectorAll(".tab").forEach((t) => {
+    const session = sessions.get(t.dataset.id);
+    t.style.display = (session && session.teamId === teamId) ? "" : "none";
+  });
+  terminalContainer.querySelectorAll(".terminal-wrapper").forEach((w) => {
+    const session = sessions.get(w.dataset.id);
+    if (!session || session.teamId !== teamId) {
+      w.classList.remove("active");
+    }
+  });
 
-    // Connect WebSocket
-    const ws = new WebSocket(getWsUrl());
-
-    const session = {
-      id: data.id,
-      name: data.name,
-      status: data.status,
-      terminal,
-      fitAddon,
-      ws,
-      tabEl: tab,
-      wrapperEl: wrapper,
-    };
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "attach", sessionId: data.id }));
-    };
-
-    ws.onmessage = (event) => {
-      // Check if it's a control message
-      if (typeof event.data === "string") {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === "exit") {
-            session.status = "exited";
-            tab.querySelector(".status-dot").classList.add("exited");
-            statusText.textContent = `${data.name} exited (code ${msg.exitCode})`;
-            return;
-          }
-          if (msg.type === "attached") return;
-          if (msg.type === "error") {
-            terminal.write(`\r\nError: ${msg.message}\r\n`);
-            return;
-          }
-          if (msg.type === "question") {
-            handleQuestionAlert(msg.sessionId);
-            return;
-          }
-        } catch {
-          // Not JSON, it's terminal data
-        }
-      }
-      terminal.write(event.data);
-    };
-
-    ws.onclose = () => {
-      if (sessions.has(data.id)) {
-        statusText.textContent = `Connection lost for ${data.name}`;
-        // Try reconnect after 2s
-        setTimeout(() => reconnect(data.id), 2000);
-      }
-    };
-
-    terminal.onData((input) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "input", data: input }));
-      }
-    });
-
-    sessions.set(data.id, session);
-    switchTab(data.id);
-    updateSessionCount();
-    statusText.textContent = `Started ${data.name}`;
-  } catch (err) {
-    statusText.textContent = `Error: ${err.message}`;
-  } finally {
-    newTabBtn.disabled = false;
+  // Switch to the first visible tab in this team, or the active one if it belongs
+  const team = teams.get(teamId);
+  if (team && team.agentIds.length > 0) {
+    const currentBelongsToTeam = activeSessionId && sessions.get(activeSessionId)?.teamId === teamId;
+    if (!currentBelongsToTeam) {
+      switchTab(team.agentIds[0]);
+    } else {
+      switchTab(activeSessionId);
+    }
+    emptyState.style.display = "none";
+  } else {
+    activeSessionId = null;
+    emptyState.style.display = "";
   }
+
+  updateSessionCount();
+}
+
+// --- Tab / Session Management ---
+
+function attachSession(data) {
+  // Create tab
+  const tab = document.createElement("div");
+  tab.className = "tab";
+  tab.dataset.id = data.id;
+  const roleLabel = data.role === "main" ? '<span class="role-badge">main</span>' : "";
+  tab.innerHTML = `
+    <span class="status-dot ${data.status === "exited" ? "exited" : ""}"></span>
+    ${roleLabel}
+    <span class="tab-name">${data.name}</span>
+    <button class="close-btn" title="Close agent">&times;</button>
+  `;
+  tab.addEventListener("click", (e) => {
+    if (!e.target.classList.contains("close-btn")) switchTab(data.id);
+  });
+  tab.querySelector(".close-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeTab(data.id);
+  });
+  tabBar.appendChild(tab);
+
+  // Create terminal wrapper
+  const wrapper = document.createElement("div");
+  wrapper.className = "terminal-wrapper";
+  wrapper.dataset.id = data.id;
+  terminalContainer.appendChild(wrapper);
+
+  const { terminal, fitAddon } = createTerminal(wrapper);
+
+  // Connect WebSocket
+  const ws = new WebSocket(getWsUrl());
+
+  const session = {
+    id: data.id,
+    name: data.name,
+    teamId: data.teamId,
+    role: data.role,
+    status: data.status,
+    terminal,
+    fitAddon,
+    ws,
+    tabEl: tab,
+    wrapperEl: wrapper,
+  };
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "attach", sessionId: data.id }));
+  };
+
+  ws.onmessage = (event) => {
+    if (typeof event.data === "string") {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "exit") {
+          session.status = "exited";
+          tab.querySelector(".status-dot").classList.add("exited");
+          statusText.textContent = `${data.name} exited (code ${msg.exitCode})`;
+          return;
+        }
+        if (msg.type === "attached") return;
+        if (msg.type === "error") {
+          terminal.write(`\r\nError: ${msg.message}\r\n`);
+          return;
+        }
+        if (msg.type === "question") {
+          handleQuestionAlert(msg.sessionId);
+          return;
+        }
+        // Handle team-update broadcasts
+        if (msg.type === "team-update") {
+          handleTeamUpdate(msg);
+          return;
+        }
+      } catch {
+        // Not JSON — terminal data
+      }
+    }
+    terminal.write(event.data);
+  };
+
+  ws.onclose = () => {
+    if (sessions.has(data.id)) {
+      statusText.textContent = `Connection lost for ${data.name}`;
+      setTimeout(() => reconnect(data.id), 2000);
+    }
+  };
+
+  terminal.onData((input) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "input", data: input }));
+    }
+  });
+
+  sessions.set(data.id, session);
+
+  // Hide tab if not in active team
+  if (data.teamId !== activeTeamId) {
+    tab.style.display = "none";
+  }
+
+  return session;
 }
 
 function reconnect(sessionId) {
@@ -267,6 +305,10 @@ function reconnect(sessionId) {
           handleQuestionAlert(msg.sessionId);
           return;
         }
+        if (msg.type === "team-update") {
+          handleTeamUpdate(msg);
+          return;
+        }
         if (msg.type === "attached" || msg.type === "error") return;
       } catch {}
     }
@@ -289,20 +331,16 @@ function reconnect(sessionId) {
 function switchTab(sessionId) {
   activeSessionId = sessionId;
 
-  // Update tab active state
   tabBar.querySelectorAll(".tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.id === sessionId);
   });
 
-  // Show/hide terminal wrappers
   terminalContainer.querySelectorAll(".terminal-wrapper").forEach((w) => {
     w.classList.toggle("active", w.dataset.id === sessionId);
   });
 
-  // Hide empty state
   emptyState.style.display = "none";
 
-  // Fit terminal and clear question alert
   const session = sessions.get(sessionId);
   if (session) {
     session.tabEl.querySelector(".status-dot").classList.remove("question");
@@ -325,9 +363,22 @@ async function closeTab(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
 
-  try {
-    await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
-  } catch {}
+  // If part of a team, remove from team's agentIds
+  if (session.teamId) {
+    const team = teams.get(session.teamId);
+    if (team) {
+      try {
+        await fetch(`/api/teams/${session.teamId}/agents/${sessionId}`, { method: "DELETE" });
+      } catch {}
+      const idx = team.agentIds.indexOf(sessionId);
+      if (idx !== -1) team.agentIds.splice(idx, 1);
+      updateTeamBadge(session.teamId);
+    }
+  } else {
+    try {
+      await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+    } catch {}
+  }
 
   session.ws.close();
   session.terminal.dispose();
@@ -338,7 +389,9 @@ async function closeTab(sessionId) {
   updateSessionCount();
 
   if (activeSessionId === sessionId) {
-    const remaining = Array.from(sessions.keys());
+    // Find next tab in same team
+    const team = activeTeamId ? teams.get(activeTeamId) : null;
+    const remaining = team ? team.agentIds.filter((id) => sessions.has(id)) : [];
     if (remaining.length > 0) {
       switchTab(remaining[remaining.length - 1]);
     } else {
@@ -350,99 +403,287 @@ async function closeTab(sessionId) {
 }
 
 function updateSessionCount() {
-  const count = sessions.size;
-  sessionCount.textContent = `${count} instance${count !== 1 ? "s" : ""}`;
+  let count = 0;
+  if (activeTeamId) {
+    const team = teams.get(activeTeamId);
+    if (team) count = team.agentIds.length;
+  }
+  sessionCount.textContent = `${count} agent${count !== 1 ? "s" : ""}`;
 }
 
-async function loadExistingSessions() {
-  try {
-    const res = await fetch("/api/sessions");
-    const list = await res.json();
-    for (const data of list) {
-      // Recreate tab and terminal for existing sessions
-      const tab = document.createElement("div");
-      tab.className = "tab";
-      tab.dataset.id = data.id;
-      tab.innerHTML = `
-        <span class="status-dot ${data.status === "exited" ? "exited" : ""}"></span>
-        <span class="tab-name">${data.name}</span>
-        <button class="close-btn" title="Close instance">&times;</button>
-      `;
-      tab.addEventListener("click", (e) => {
-        if (!e.target.classList.contains("close-btn")) switchTab(data.id);
-      });
-      tab.querySelector(".close-btn").addEventListener("click", (e) => {
-        e.stopPropagation();
-        closeTab(data.id);
-      });
-      tabBar.appendChild(tab);
+// --- Team-update WebSocket handler ---
 
-      const wrapper = document.createElement("div");
-      wrapper.className = "terminal-wrapper";
-      wrapper.dataset.id = data.id;
-      terminalContainer.appendChild(wrapper);
-
-      const { terminal, fitAddon } = createTerminal(wrapper);
-
-      const ws = new WebSocket(getWsUrl());
-      const session = {
-        id: data.id,
-        name: data.name,
-        status: data.status,
-        terminal,
-        fitAddon,
-        ws,
-        tabEl: tab,
-        wrapperEl: wrapper,
-      };
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: "attach", sessionId: data.id }));
-      };
-
-      ws.onmessage = (event) => {
-        if (typeof event.data === "string") {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === "exit") {
-              session.status = "exited";
-              tab.querySelector(".status-dot").classList.add("exited");
-              return;
-            }
-            if (msg.type === "question") {
-              handleQuestionAlert(msg.sessionId);
-              return;
-            }
-            if (msg.type === "attached" || msg.type === "error") return;
-          } catch {}
+function handleTeamUpdate(msg) {
+  switch (msg.event) {
+    case "agent-added": {
+      const team = teams.get(msg.teamId);
+      if (!team) break;
+      // Avoid duplicates
+      if (!team.agentIds.includes(msg.agent.id)) {
+        team.agentIds.push(msg.agent.id);
+      }
+      // Only attach if we don't already have it
+      if (!sessions.has(msg.agent.id)) {
+        attachSession(msg.agent);
+        // If this team is active, show the tab
+        if (msg.teamId === activeTeamId) {
+          const s = sessions.get(msg.agent.id);
+          if (s) s.tabEl.style.display = "";
         }
-        terminal.write(event.data);
-      };
-
-      ws.onclose = () => {
-        if (sessions.has(data.id)) {
-          setTimeout(() => reconnect(data.id), 2000);
-        }
-      };
-
-      terminal.onData((input) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "input", data: input }));
-        }
-      });
-
-      sessions.set(data.id, session);
+      }
+      updateTeamBadge(msg.teamId);
+      updateSessionCount();
+      statusText.textContent = `Agent "${msg.agent.name}" spawned in team`;
+      break;
     }
+    case "agent-removed": {
+      const team = teams.get(msg.teamId);
+      if (team) {
+        const idx = team.agentIds.indexOf(msg.agentId);
+        if (idx !== -1) team.agentIds.splice(idx, 1);
+        updateTeamBadge(msg.teamId);
+      }
+      // Session cleanup handled by closeTab if initiated locally
+      break;
+    }
+    case "team-deleted": {
+      const team = teams.get(msg.teamId);
+      if (team) {
+        // Clean up all sessions in this team
+        for (const agentId of [...team.agentIds]) {
+          const s = sessions.get(agentId);
+          if (s) {
+            s.ws.close();
+            s.terminal.dispose();
+            s.tabEl.remove();
+            s.wrapperEl.remove();
+            sessions.delete(agentId);
+          }
+        }
+        teams.delete(msg.teamId);
+        const el = teamList.querySelector(`[data-team-id="${msg.teamId}"]`);
+        if (el) el.remove();
 
+        if (activeTeamId === msg.teamId) {
+          const remaining = Array.from(teams.keys());
+          if (remaining.length > 0) {
+            selectTeam(remaining[0]);
+          } else {
+            activeTeamId = null;
+            activeSessionId = null;
+            newAgentBtn.disabled = true;
+            tabBar.innerHTML = "";
+            emptyState.style.display = "";
+            updateSessionCount();
+          }
+        }
+      }
+      break;
+    }
+  }
+}
+
+// --- Modal logic ---
+
+function showNewTeamModal() {
+  teamNameInput.value = "";
+  pathInput.value = "";
+  promptInput.value = "";
+  modalOverlay.classList.remove("hidden");
+  teamNameInput.focus();
+}
+
+function hideModal() {
+  modalOverlay.classList.add("hidden");
+}
+
+function showNewAgentModal() {
+  agentNameInput.value = "";
+  agentPromptInput.value = "";
+  agentModalOverlay.classList.remove("hidden");
+  agentNameInput.focus();
+}
+
+function hideAgentModal() {
+  agentModalOverlay.classList.add("hidden");
+}
+
+async function browseForFolder() {
+  browseBtn.disabled = true;
+  browseBtn.textContent = "Opening...";
+  try {
+    const res = await fetch("/api/browse-folder");
+    const data = await res.json();
+    if (!data.cancelled && data.path) {
+      pathInput.value = data.path;
+    }
+  } catch (err) {
+    statusText.textContent = `Browse error: ${err.message}`;
+  } finally {
+    browseBtn.disabled = false;
+    browseBtn.textContent = "Browse";
+  }
+}
+
+async function createNewTeam() {
+  const name = teamNameInput.value.trim();
+  const cwd = pathInput.value.trim() || undefined;
+  const prompt = promptInput.value.trim();
+
+  if (!name) { teamNameInput.focus(); return; }
+  if (!prompt) { promptInput.focus(); return; }
+
+  hideModal();
+  newTeamBtn.disabled = true;
+  statusText.textContent = "Creating team...";
+
+  try {
+    const res = await fetch("/api/teams", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, cwd, prompt }),
+    });
+    const data = await res.json();
+
+    // Add team to state
+    const team = {
+      id: data.team.id,
+      name: data.team.name,
+      agentIds: data.team.agentIds,
+    };
+    teams.set(team.id, team);
+
+    // Add to sidebar
+    teamList.appendChild(renderTeamItem(team));
+
+    // Attach main agent session
+    attachSession(data.mainAgent);
+
+    // Select this team
+    selectTeam(team.id);
+
+    statusText.textContent = `Team "${name}" created`;
+  } catch (err) {
+    statusText.textContent = `Error: ${err.message}`;
+  } finally {
+    newTeamBtn.disabled = false;
+  }
+}
+
+async function spawnNewAgent() {
+  if (!activeTeamId) return;
+
+  const name = agentNameInput.value.trim();
+  const prompt = agentPromptInput.value.trim();
+
+  if (!name) { agentNameInput.focus(); return; }
+  if (!prompt) { agentPromptInput.focus(); return; }
+
+  hideAgentModal();
+  statusText.textContent = "Spawning agent...";
+
+  try {
+    const res = await fetch(`/api/teams/${activeTeamId}/agents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, prompt }),
+    });
+    const data = await res.json();
+
+    // The team-update broadcast will handle adding the tab,
+    // but we also attach here in case broadcast arrives late
+    const team = teams.get(activeTeamId);
+    if (team && !team.agentIds.includes(data.id)) {
+      team.agentIds.push(data.id);
+    }
+    if (!sessions.has(data.id)) {
+      attachSession(data);
+    }
+    updateTeamBadge(activeTeamId);
     updateSessionCount();
 
-    if (list.length > 0) {
-      switchTab(list[0].id);
+    // Show and switch to the new agent
+    const s = sessions.get(data.id);
+    if (s) s.tabEl.style.display = "";
+    switchTab(data.id);
+
+    statusText.textContent = `Agent "${name}" spawned`;
+  } catch (err) {
+    statusText.textContent = `Error: ${err.message}`;
+  }
+}
+
+async function deleteTeam(teamId) {
+  statusText.textContent = "Deleting team...";
+  try {
+    await fetch(`/api/teams/${teamId}`, { method: "DELETE" });
+  } catch {}
+
+  // handleTeamUpdate will be called by broadcast, but also do local cleanup
+  const team = teams.get(teamId);
+  if (team) {
+    for (const agentId of [...team.agentIds]) {
+      const s = sessions.get(agentId);
+      if (s) {
+        s.ws.close();
+        s.terminal.dispose();
+        s.tabEl.remove();
+        s.wrapperEl.remove();
+        sessions.delete(agentId);
+      }
+    }
+    teams.delete(teamId);
+    const el = teamList.querySelector(`[data-team-id="${teamId}"]`);
+    if (el) el.remove();
+  }
+
+  if (activeTeamId === teamId) {
+    const remaining = Array.from(teams.keys());
+    if (remaining.length > 0) {
+      selectTeam(remaining[0]);
+    } else {
+      activeTeamId = null;
+      activeSessionId = null;
+      newAgentBtn.disabled = true;
+      tabBar.innerHTML = "";
+      emptyState.style.display = "";
+      updateSessionCount();
+      statusText.textContent = "Ready";
+    }
+  }
+}
+
+// --- Load existing teams on page load ---
+
+async function loadExistingTeams() {
+  try {
+    const res = await fetch("/api/teams");
+    const teamsList = await res.json();
+
+    for (const teamData of teamsList) {
+      const team = {
+        id: teamData.id,
+        name: teamData.name,
+        agentIds: teamData.agentIds,
+      };
+      teams.set(team.id, team);
+      teamList.appendChild(renderTeamItem(team));
+
+      // Load agents for this team
+      const agentsRes = await fetch(`/api/teams/${team.id}/agents`);
+      const agents = await agentsRes.json();
+      for (const agent of agents) {
+        attachSession(agent);
+      }
+    }
+
+    if (teamsList.length > 0) {
+      selectTeam(teamsList[0].id);
     }
   } catch {}
 }
 
-// Window resize handling
+// --- Window resize ---
 window.addEventListener("resize", () => {
   if (activeSessionId) {
     const session = sessions.get(activeSessionId);
@@ -453,7 +694,7 @@ window.addEventListener("resize", () => {
   }
 });
 
-// Usage polling
+// --- Usage polling ---
 setInterval(async () => {
   if (sessions.size === 0) return;
   try {
@@ -473,22 +714,44 @@ setInterval(async () => {
   } catch {}
 }, 5000);
 
-// Modal events
+// --- Event listeners ---
+
+// Team modal
+newTeamBtn.addEventListener("click", showNewTeamModal);
 browseBtn.addEventListener("click", browseForFolder);
 modalCancel.addEventListener("click", hideModal);
-modalStart.addEventListener("click", () => createNewInstance(pathInput.value));
+modalStart.addEventListener("click", createNewTeam);
+teamNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") pathInput.focus();
+  if (e.key === "Escape") hideModal();
+});
 pathInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") createNewInstance(pathInput.value);
+  if (e.key === "Enter") promptInput.focus();
   if (e.key === "Escape") hideModal();
 });
 promptInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) createNewInstance(pathInput.value);
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) createNewTeam();
   if (e.key === "Escape") hideModal();
 });
 modalOverlay.addEventListener("click", (e) => {
   if (e.target === modalOverlay) hideModal();
 });
 
+// Agent modal
+newAgentBtn.addEventListener("click", showNewAgentModal);
+agentModalCancel.addEventListener("click", hideAgentModal);
+agentModalStart.addEventListener("click", spawnNewAgent);
+agentNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") agentPromptInput.focus();
+  if (e.key === "Escape") hideAgentModal();
+});
+agentPromptInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) spawnNewAgent();
+  if (e.key === "Escape") hideAgentModal();
+});
+agentModalOverlay.addEventListener("click", (e) => {
+  if (e.target === agentModalOverlay) hideAgentModal();
+});
+
 // Init
-newTabBtn.addEventListener("click", showNewInstanceModal);
-loadExistingSessions();
+loadExistingTeams();

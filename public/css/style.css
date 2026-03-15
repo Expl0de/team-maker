@@ -41,7 +41,7 @@ header h1 {
   color: #6c7086;
 }
 
-#new-tab-btn {
+#new-team-btn {
   background: #cba6f7;
   color: #1e1e2e;
   border: none;
@@ -53,8 +53,136 @@ header h1 {
   transition: background 0.15s;
 }
 
-#new-tab-btn:hover {
+#new-team-btn:hover {
   background: #b4befe;
+}
+
+.secondary-btn {
+  background: #313244;
+  color: #cdd6f4;
+  border: 1px solid #45475a;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.secondary-btn:hover {
+  background: #45475a;
+}
+
+.secondary-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* App layout: sidebar + main */
+#app-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar */
+#sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: #11111b;
+  border-right: 1px solid #313244;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#sidebar-header {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6c7086;
+  border-bottom: 1px solid #313244;
+}
+
+#team-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.team-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: all 0.15s;
+}
+
+.team-item:hover {
+  background: #181825;
+}
+
+.team-item.active {
+  background: #1e1e2e;
+  border-left-color: #cba6f7;
+}
+
+.team-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.team-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cdd6f4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-item.active .team-item-name {
+  color: #cba6f7;
+}
+
+.team-item-badge {
+  font-size: 10px;
+  color: #6c7086;
+}
+
+.team-item .delete-team-btn {
+  background: none;
+  border: none;
+  color: #6c7086;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.team-item:hover .delete-team-btn {
+  opacity: 1;
+}
+
+.team-item .delete-team-btn:hover {
+  color: #f38ba8;
+  background: #313244;
+}
+
+/* Main content area */
+#main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 #tab-bar {
@@ -115,6 +243,16 @@ header h1 {
 @keyframes pulse-question {
   0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(249, 226, 175, 0.6); }
   50% { opacity: 0.6; box-shadow: 0 0 6px 2px rgba(249, 226, 175, 0.4); }
+}
+
+.tab .role-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #313244;
+  color: #cba6f7;
 }
 
 .tab .close-btn {
@@ -211,13 +349,8 @@ header h1 {
   margin-bottom: 6px;
 }
 
-.path-row {
-  display: flex;
-  gap: 8px;
-}
-
-.path-row input {
-  flex: 1;
+.modal input[type="text"] {
+  width: 100%;
   background: #1e1e2e;
   border: 1px solid #313244;
   border-radius: 6px;
@@ -226,10 +359,21 @@ header h1 {
   font-size: 13px;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   outline: none;
+  margin-bottom: 12px;
 }
 
-.path-row input:focus {
+.modal input[type="text"]:focus {
   border-color: #cba6f7;
+}
+
+.path-row {
+  display: flex;
+  gap: 8px;
+}
+
+.path-row input {
+  flex: 1;
+  margin-bottom: 0 !important;
 }
 
 #browse-btn {
@@ -255,35 +399,6 @@ header h1 {
   margin-bottom: 12px;
 }
 
-.checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.checkbox-row input[type="checkbox"] {
-  accent-color: #cba6f7;
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
-}
-
-.checkbox-row label {
-  font-size: 12px;
-  color: #a6adc8;
-  margin-bottom: 0;
-  cursor: pointer;
-}
-
-.checkbox-row label code {
-  background: #313244;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 11px;
-  color: #f9e2af;
-}
-
 .modal textarea {
   width: 100%;
   background: #1e1e2e;
@@ -299,6 +414,11 @@ header h1 {
 
 .modal textarea:focus {
   border-color: #cba6f7;
+}
+
+.modal .required {
+  color: #f38ba8;
+  font-weight: normal;
 }
 
 .modal .optional {
@@ -341,16 +461,20 @@ header h1 {
   background: #b4befe;
 }
 
-/* Scrollbar styling for tab bar */
-#tab-bar::-webkit-scrollbar {
+/* Scrollbar styling */
+#tab-bar::-webkit-scrollbar,
+#team-list::-webkit-scrollbar {
   height: 2px;
+  width: 4px;
 }
 
-#tab-bar::-webkit-scrollbar-track {
+#tab-bar::-webkit-scrollbar-track,
+#team-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
-#tab-bar::-webkit-scrollbar-thumb {
+#tab-bar::-webkit-scrollbar-thumb,
+#team-list::-webkit-scrollbar-thumb {
   background: #313244;
-  border-radius: 1px;
+  border-radius: 2px;
 }

@@ -4,6 +4,7 @@ import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import sessionManager from "./sessionManager.js";
+import teamManager from "./teamManager.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -12,6 +13,18 @@ const wss = new WebSocketServer({ server });
 
 app.use(express.json());
 app.use(express.static(join(__dirname, "..", "public")));
+
+// Global set of all connected WebSocket clients for broadcasting
+const allWsClients = new Set();
+
+function broadcast(message) {
+  const payload = JSON.stringify(message);
+  for (const ws of allWsClients) {
+    try {
+      ws.send(payload);
+    } catch {}
+  }
+}
 
 // Browse for folder using native macOS Finder dialog
 app.get("/api/browse-folder", async (req, res) => {
@@ -59,8 +72,67 @@ app.post("/api/sessions/:id/resize", (req, res) => {
   res.json({ ok: true });
 });
 
+// Input injection (used by MCP send_message tool)
+app.post("/api/sessions/:id/input", (req, res) => {
+  const session = sessionManager.get(req.params.id);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: "text is required" });
+  session.injectInput(text + "\r");
+  res.json({ ok: true });
+});
+
+// Team API
+app.post("/api/teams", (req, res) => {
+  const { name, cwd, prompt } = req.body || {};
+  if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
+  const { team, session } = teamManager.create({ name, cwd, prompt });
+  broadcast({ type: "team-update", teamId: team.id, event: "team-created", team: team.toJSON(), agent: session.toJSON() });
+  res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
+});
+
+app.get("/api/teams", (req, res) => {
+  res.json(teamManager.list());
+});
+
+app.get("/api/teams/:teamId", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  res.json(team.toJSON());
+});
+
+app.delete("/api/teams/:teamId", (req, res) => {
+  const destroyed = teamManager.destroy(req.params.teamId);
+  if (!destroyed) return res.status(404).json({ error: "Team not found" });
+  broadcast({ type: "team-update", teamId: req.params.teamId, event: "team-deleted" });
+  res.json({ ok: true });
+});
+
+app.post("/api/teams/:teamId/agents", (req, res) => {
+  const { name, prompt } = req.body || {};
+  if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
+  const session = teamManager.addAgent({ teamId: req.params.teamId, name, prompt });
+  if (!session) return res.status(404).json({ error: "Team not found" });
+  broadcast({ type: "team-update", teamId: req.params.teamId, event: "agent-added", agent: session.toJSON() });
+  res.json(session.toJSON());
+});
+
+app.get("/api/teams/:teamId/agents", (req, res) => {
+  const agents = teamManager.getAgents(req.params.teamId);
+  if (!agents) return res.status(404).json({ error: "Team not found" });
+  res.json(agents);
+});
+
+app.delete("/api/teams/:teamId/agents/:agentId", (req, res) => {
+  const removed = teamManager.removeAgent(req.params.teamId, req.params.agentId);
+  if (!removed) return res.status(404).json({ error: "Agent not found" });
+  broadcast({ type: "team-update", teamId: req.params.teamId, event: "agent-removed", agentId: req.params.agentId });
+  res.json({ ok: true });
+});
+
 // WebSocket
 wss.on("connection", (ws) => {
+  allWsClients.add(ws);
   let attachedSession = null;
 
   ws.on("message", (raw) => {
@@ -107,6 +179,7 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
+    allWsClients.delete(ws);
     if (attachedSession) {
       attachedSession.removeClient(ws);
     }

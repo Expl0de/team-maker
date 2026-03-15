@@ -32,10 +32,12 @@ const QUESTION_PATTERNS = [
 ];
 
 class Session {
-  constructor({ id, name, cwd, autoAccept, initialPrompt }) {
+  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, mcpConfigPath }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
+    this.teamId = teamId || null;
+    this.role = role || null; // "main" | "agent"
     this.status = "running";
     this.exitCode = null;
     this.createdAt = new Date();
@@ -48,6 +50,7 @@ class Session {
     const claudePath = process.env.CLAUDE_PATH || "/Users/tung/.local/bin/claude";
     const args = [];
     if (autoAccept) args.push("--permission-mode", "auto");
+    if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
 
     this.pty = pty.spawn(claudePath, args, {
       name: "xterm-256color",
@@ -155,6 +158,12 @@ class Session {
     this.clients.delete(ws);
   }
 
+  injectInput(text) {
+    if (this.status === "running") {
+      this.pty.write(text);
+    }
+  }
+
   kill() {
     if (this.status === "running") {
       this.pty.kill();
@@ -170,6 +179,8 @@ class Session {
       exitCode: this.exitCode,
       createdAt: this.createdAt.toISOString(),
       cwd: this.cwd,
+      teamId: this.teamId,
+      role: this.role,
       usage: {
         bytesIn: this.usage.bytesIn,
         bytesOut: this.usage.bytesOut,
@@ -186,11 +197,11 @@ class SessionManager {
     this.instanceCounter = 0;
   }
 
-  create({ name, cwd, autoAccept, initialPrompt } = {}) {
+  create({ name, cwd, autoAccept, initialPrompt, teamId, role, mcpConfigPath } = {}) {
     const id = uuidv4();
     this.instanceCounter++;
     const sessionName = name || `Instance ${this.instanceCounter}`;
-    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt });
+    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, mcpConfigPath });
     this.sessions.set(id, session);
     return session;
   }

@@ -11,37 +11,65 @@
   <header>
     <h1>Team Maker</h1>
     <div id="header-actions">
-      <span id="session-count">0 instances</span>
-      <button id="new-tab-btn" title="New Claude Code instance">+ New Instance</button>
+      <span id="session-count">0 agents</span>
+      <button id="new-agent-btn" title="Add agent to current team" class="header-btn secondary-btn" disabled>+ New Agent</button>
+      <button id="new-team-btn" title="Create a new team">+ New Team</button>
     </div>
   </header>
-  <nav id="tab-bar"></nav>
-  <main id="terminal-container">
-    <div id="empty-state">
-      <p>No instances running</p>
-      <p>Click <strong>+ New Instance</strong> to start a Claude Code session</p>
+  <div id="app-layout">
+    <aside id="sidebar">
+      <div id="sidebar-header">Teams</div>
+      <div id="team-list"></div>
+    </aside>
+    <div id="main-content">
+      <nav id="tab-bar"></nav>
+      <main id="terminal-container">
+        <div id="empty-state">
+          <p>No teams yet</p>
+          <p>Click <strong>+ New Team</strong> to create a team with an orchestrator agent</p>
+        </div>
+      </main>
     </div>
-  </main>
-  <!-- New Instance Modal -->
+  </div>
+
+  <!-- New Team Modal -->
   <div id="modal-overlay" class="modal-overlay hidden">
     <div class="modal">
-      <h2>New Claude Code Instance</h2>
+      <h2 id="modal-title">New Team</h2>
+      <label for="team-name-input">Team Name</label>
+      <input type="text" id="team-name-input" placeholder="e.g. Feature Build" spellcheck="false" />
+
       <label for="path-input">Working Directory</label>
       <div class="path-row">
         <input type="text" id="path-input" placeholder="e.g. /Users/you/project" spellcheck="false" />
         <button id="browse-btn" title="Browse in Finder">Browse</button>
       </div>
       <p class="path-hint">Leave empty to use home directory</p>
-      <div class="checkbox-row">
-        <input type="checkbox" id="auto-accept" checked />
-        <label for="auto-accept">Auto-accept permissions (<code>--permission-mode auto</code>)</label>
-      </div>
-      <label for="prompt-input">Initial Prompt <span class="optional">(optional)</span></label>
-      <textarea id="prompt-input" rows="3" placeholder="e.g. Review the codebase and suggest improvements" spellcheck="false"></textarea>
-      <p class="path-hint">If provided, this prompt will be sent automatically after Claude starts</p>
+
+      <label for="prompt-input">Team Prompt <span class="required">*</span></label>
+      <textarea id="prompt-input" rows="4" placeholder="e.g. Build a REST API with auth, tests, and documentation" spellcheck="false"></textarea>
+      <p class="path-hint">Describe the task — the orchestrator will break it down and spawn agents</p>
+
       <div class="modal-actions">
         <button id="modal-cancel" class="modal-btn secondary">Cancel</button>
-        <button id="modal-start" class="modal-btn primary">Start Session</button>
+        <button id="modal-start" class="modal-btn primary">Create Team</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Agent Modal (add agent to existing team) -->
+  <div id="agent-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>New Agent</h2>
+      <label for="agent-name-input">Agent Name</label>
+      <input type="text" id="agent-name-input" placeholder="e.g. Test Writer" spellcheck="false" />
+
+      <label for="agent-prompt-input">Agent Prompt <span class="required">*</span></label>
+      <textarea id="agent-prompt-input" rows="3" placeholder="e.g. Write unit tests for the API endpoints" spellcheck="false"></textarea>
+
+      <div class="modal-actions">
+        <button id="agent-modal-cancel" class="modal-btn secondary">Cancel</button>
+        <button id="agent-modal-start" class="modal-btn primary">Spawn Agent</button>
       </div>
     </div>
   </div>
