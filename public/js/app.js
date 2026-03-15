@@ -3,6 +3,13 @@ const sessions = new Map(); // sessionId -> { id, name, teamId, role, terminal, 
 let activeTeamId = null;
 let activeSessionId = null;
 
+// Role editor state
+let currentRoles = [];
+let editingRoleIndex = -1;
+let savedTemplates = [];
+let builtinRoles = [];
+let extraRoles = [];
+
 // Alert sound using Web Audio API
 let audioCtx = null;
 function playAlertSound() {
@@ -67,6 +74,15 @@ const agentNameInput = document.getElementById("agent-name-input");
 const agentPromptInput = document.getElementById("agent-prompt-input");
 const agentModalCancel = document.getElementById("agent-modal-cancel");
 const agentModalStart = document.getElementById("agent-modal-start");
+
+// Role editor elements
+const wakeIntervalInput = document.getElementById("wake-interval-input");
+const templateSelect = document.getElementById("template-select");
+const templateSaveBtn = document.getElementById("template-save-btn");
+const templateDeleteBtn = document.getElementById("template-delete-btn");
+const roleListEl = document.getElementById("role-list");
+const addRoleBtn = document.getElementById("add-role-btn");
+const quickAddSelect = document.getElementById("quick-add-select");
 
 function getWsUrl() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -509,12 +525,189 @@ function handleTeamUpdate(msg) {
   }
 }
 
+// --- Role Editor ---
+
+function renderRoleList() {
+  if (currentRoles.length === 0) {
+    roleListEl.innerHTML = '<div class="role-list-empty">No roles defined. Add roles below.</div>';
+    return;
+  }
+  roleListEl.innerHTML = "";
+  currentRoles.forEach((role, i) => {
+    if (i === editingRoleIndex) {
+      roleListEl.appendChild(renderRoleEditForm(role, i));
+    } else {
+      roleListEl.appendChild(renderRoleItem(role, i));
+    }
+  });
+}
+
+function renderRoleItem(role, index) {
+  const el = document.createElement("div");
+  el.className = "role-item";
+  el.innerHTML = `
+    <span class="role-item-number">${index + 1}</span>
+    <div class="role-item-info">
+      <span class="role-item-title">${role.title}</span>
+      <span class="role-item-responsibility">${role.responsibility}</span>
+    </div>
+    <div class="role-item-actions">
+      <button class="edit-role" title="Edit">Edit</button>
+      <button class="remove-role" title="Remove">&times;</button>
+    </div>
+  `;
+  el.querySelector(".edit-role").addEventListener("click", () => {
+    editingRoleIndex = index;
+    renderRoleList();
+  });
+  el.querySelector(".remove-role").addEventListener("click", () => {
+    currentRoles.splice(index, 1);
+    if (editingRoleIndex === index) editingRoleIndex = -1;
+    else if (editingRoleIndex > index) editingRoleIndex--;
+    templateSelect.value = "";
+    renderRoleList();
+  });
+  return el;
+}
+
+function renderRoleEditForm(role, index) {
+  const el = document.createElement("div");
+  el.className = "role-edit-form";
+  el.innerHTML = `
+    <div class="role-edit-fields">
+      <input type="text" class="edit-title" value="${role.title}" placeholder="Title (e.g. Architect)" />
+      <input type="text" class="edit-responsibility" value="${role.responsibility}" placeholder="Responsibility (e.g. Research & Planning)" />
+      <textarea class="edit-description" rows="2" placeholder="Description...">${role.description}</textarea>
+    </div>
+    <div class="role-edit-actions">
+      <button class="modal-btn secondary small cancel-edit">Cancel</button>
+      <button class="modal-btn primary small save-edit">Save</button>
+    </div>
+  `;
+  el.querySelector(".save-edit").addEventListener("click", () => {
+    const title = el.querySelector(".edit-title").value.trim();
+    const responsibility = el.querySelector(".edit-responsibility").value.trim();
+    const description = el.querySelector(".edit-description").value.trim();
+    if (title && responsibility) {
+      currentRoles[index] = { id: role.id || title.toLowerCase().replace(/\s+/g, "-"), title, responsibility, description };
+      editingRoleIndex = -1;
+      templateSelect.value = "";
+      renderRoleList();
+    }
+  });
+  el.querySelector(".cancel-edit").addEventListener("click", () => {
+    editingRoleIndex = -1;
+    renderRoleList();
+  });
+  return el;
+}
+
+function addRole(role) {
+  currentRoles.push({ ...role });
+  templateSelect.value = "";
+  renderRoleList();
+}
+
+async function loadTemplates() {
+  try {
+    const res = await fetch("/api/templates");
+    savedTemplates = await res.json();
+  } catch {
+    savedTemplates = [];
+  }
+  populateTemplateDropdown();
+}
+
+async function loadBuiltinRoles() {
+  try {
+    const res = await fetch("/api/builtin-roles");
+    const data = await res.json();
+    builtinRoles = data.builtin;
+    extraRoles = data.extra;
+  } catch {
+    builtinRoles = [];
+    extraRoles = [];
+  }
+  populateQuickAdd();
+}
+
+function populateTemplateDropdown() {
+  // Keep first two options (Custom + Standard 4-Agent), remove the rest
+  while (templateSelect.options.length > 2) {
+    templateSelect.remove(2);
+  }
+  for (const t of savedTemplates) {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = t.name;
+    templateSelect.appendChild(opt);
+  }
+}
+
+function populateQuickAdd() {
+  quickAddSelect.innerHTML = '<option value="">Quick-add...</option>';
+  const allRoles = [...builtinRoles, ...extraRoles];
+  for (const role of allRoles) {
+    const opt = document.createElement("option");
+    opt.value = role.id;
+    opt.textContent = role.title;
+    quickAddSelect.appendChild(opt);
+  }
+}
+
+function applyTemplate(templateId) {
+  if (templateId === "__default__") {
+    currentRoles = builtinRoles.map((r) => ({ ...r }));
+  } else {
+    const template = savedTemplates.find((t) => t.id === templateId);
+    if (template) {
+      currentRoles = template.roles.map((r) => ({ ...r }));
+    }
+  }
+  editingRoleIndex = -1;
+  renderRoleList();
+}
+
+async function saveTemplate() {
+  if (currentRoles.length === 0) return;
+  const name = prompt("Template name:");
+  if (!name) return;
+  try {
+    const res = await fetch("/api/templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, roles: currentRoles }),
+    });
+    const template = await res.json();
+    savedTemplates.push(template);
+    populateTemplateDropdown();
+    templateSelect.value = template.id;
+  } catch {}
+}
+
+async function deleteTemplate() {
+  const id = templateSelect.value;
+  if (!id || id === "__default__") return;
+  try {
+    await fetch(`/api/templates/${id}`, { method: "DELETE" });
+    savedTemplates = savedTemplates.filter((t) => t.id !== id);
+    populateTemplateDropdown();
+    templateSelect.value = "";
+  } catch {}
+}
+
 // --- Modal logic ---
 
 function showNewTeamModal() {
   teamNameInput.value = "";
   pathInput.value = "";
   promptInput.value = "";
+  wakeIntervalInput.value = "60";
+  // Init with default 4 roles
+  currentRoles = builtinRoles.map((r) => ({ ...r }));
+  editingRoleIndex = -1;
+  templateSelect.value = "__default__";
+  renderRoleList();
   modalOverlay.classList.remove("hidden");
   teamNameInput.focus();
 }
@@ -555,6 +748,8 @@ async function createNewTeam() {
   const name = teamNameInput.value.trim();
   const cwd = pathInput.value.trim() || undefined;
   const prompt = promptInput.value.trim();
+  const roles = currentRoles.length > 0 ? currentRoles : undefined;
+  const wakeInterval = parseInt(wakeIntervalInput.value, 10) || 60;
 
   if (!name) { teamNameInput.focus(); return; }
   if (!prompt) { promptInput.focus(); return; }
@@ -567,7 +762,7 @@ async function createNewTeam() {
     const res = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, cwd, prompt }),
+      body: JSON.stringify({ name, cwd, prompt, roles, wakeInterval }),
     });
     const data = await res.json();
 
@@ -779,5 +974,30 @@ agentModalOverlay.addEventListener("click", (e) => {
   if (e.target === agentModalOverlay) hideAgentModal();
 });
 
+// Role editor events
+templateSelect.addEventListener("change", () => {
+  const val = templateSelect.value;
+  if (val) applyTemplate(val);
+});
+templateSaveBtn.addEventListener("click", saveTemplate);
+templateDeleteBtn.addEventListener("click", deleteTemplate);
+addRoleBtn.addEventListener("click", () => {
+  const newRole = { id: `role-${Date.now()}`, title: "", responsibility: "", description: "" };
+  currentRoles.push(newRole);
+  editingRoleIndex = currentRoles.length - 1;
+  templateSelect.value = "";
+  renderRoleList();
+});
+quickAddSelect.addEventListener("change", () => {
+  const id = quickAddSelect.value;
+  if (!id) return;
+  const allRoles = [...builtinRoles, ...extraRoles];
+  const role = allRoles.find((r) => r.id === id);
+  if (role) addRole(role);
+  quickAddSelect.value = "";
+});
+
 // Init
+loadBuiltinRoles();
+loadTemplates();
 loadExistingTeams();

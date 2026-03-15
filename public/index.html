@@ -50,6 +50,35 @@
       <textarea id="prompt-input" rows="4" placeholder="e.g. Build a REST API with auth, tests, and documentation" spellcheck="false"></textarea>
       <p class="path-hint">Describe the task — the orchestrator will break it down and spawn agents</p>
 
+      <div class="role-editor-section">
+        <label>Wake Interval</label>
+        <div class="wake-interval-row">
+          <input type="number" id="wake-interval-input" value="60" min="10" max="600" />
+          <span class="wake-interval-unit">seconds</span>
+        </div>
+
+        <label>Agent Roles</label>
+        <div class="template-picker-row">
+          <select id="template-select">
+            <option value="">Custom</option>
+            <option value="__default__">Standard 4-Agent</option>
+          </select>
+          <button id="template-save-btn" class="modal-btn secondary small" title="Save current roles as template">Save</button>
+          <button id="template-delete-btn" class="modal-btn secondary small danger" title="Delete selected template">Delete</button>
+        </div>
+
+        <div id="role-list" class="role-list"></div>
+
+        <div class="role-actions-row">
+          <button id="add-role-btn" class="modal-btn secondary small">+ Add Role</button>
+          <div class="quick-add-wrapper">
+            <select id="quick-add-select">
+              <option value="">Quick-add...</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div class="modal-actions">
         <button id="modal-cancel" class="modal-btn secondary">Cancel</button>
         <button id="modal-start" class="modal-btn primary">Create Team</button>

@@ -5,6 +5,8 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import sessionManager from "./sessionManager.js";
 import teamManager from "./teamManager.js";
+import * as templateStore from "./templateStore.js";
+import { BUILTIN_ROLES, EXTRA_ROLES } from "./promptBuilder.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -82,11 +84,34 @@ app.post("/api/sessions/:id/input", (req, res) => {
   res.json({ ok: true });
 });
 
+// Template API
+app.get("/api/templates", (req, res) => {
+  res.json(templateStore.loadAll());
+});
+
+app.post("/api/templates", (req, res) => {
+  const { name, roles } = req.body || {};
+  if (!name || !roles) return res.status(400).json({ error: "name and roles are required" });
+  const template = templateStore.save({ name, roles });
+  res.json(template);
+});
+
+app.delete("/api/templates/:id", (req, res) => {
+  const removed = templateStore.remove(req.params.id);
+  if (!removed) return res.status(404).json({ error: "Template not found" });
+  res.json({ ok: true });
+});
+
+// Built-in roles for quick-add
+app.get("/api/builtin-roles", (req, res) => {
+  res.json({ builtin: BUILTIN_ROLES, extra: EXTRA_ROLES });
+});
+
 // Team API
 app.post("/api/teams", (req, res) => {
-  const { name, cwd, prompt } = req.body || {};
+  const { name, cwd, prompt, roles, wakeInterval } = req.body || {};
   if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
-  const { team, session } = teamManager.create({ name, cwd, prompt });
+  const { team, session } = teamManager.create({ name, cwd, prompt, roles, wakeInterval });
   broadcast({ type: "team-update", teamId: team.id, event: "team-created", team: team.toJSON(), agent: session.toJSON() });
   res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
 });

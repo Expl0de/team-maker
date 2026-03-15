@@ -3,8 +3,6 @@ import { v4 as uuidv4 } from "uuid";
 
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
 const PLAIN_BUFFER_SIZE = 2048; // rolling buffer for pattern detection
-const WAKE_INTERVAL_MS = 60 * 1000; // 60 seconds between wake-up nudges
-
 // Strip ANSI escape sequences and control characters from terminal data
 function stripAnsi(str) {
   return str
@@ -33,7 +31,7 @@ const QUESTION_PATTERNS = [
 ];
 
 class Session {
-  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath }) {
+  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
@@ -49,6 +47,7 @@ class Session {
     this._lastQuestionAlert = 0; // debounce timestamp
     this._plainBuffer = ""; // rolling buffer of stripped text for pattern matching
     this._lastOutputTime = Date.now(); // track last PTY output for idle detection
+    this._wakeIntervalMs = (wakeInterval || 60) * 1000; // configurable wake interval
     this._wakeInterval = null; // server-side wake-up timer for agents
     this._active = false; // whether the session is actively producing output
     this._activityTimer = null; // timer to detect when output stops
@@ -187,10 +186,11 @@ class Session {
           this._wakeInterval = null;
           return;
         }
-        // Only nudge if agent has been idle (no output for 30+ seconds)
+        // Only nudge if agent has been idle (no output for half the wake interval)
+        const idleThreshold = this._wakeIntervalMs / 2;
         const idleMs = Date.now() - this._lastOutputTime;
-        if (idleMs > 30000) {
-          const nudge = "Check your inbox (AGENT_COMMUNICATE.md) and shared plan (MULTI_AGENT_PLAN.md) now. If you have pending tasks, work on them. If idle, report status to Agent 0.";
+        if (idleMs > idleThreshold) {
+          const nudge = "Wake cycle: Check your inbox (AGENT_COMMUNICATE.md) and shared plan (MULTI_AGENT_PLAN.md) now. If you have pending tasks, work on them. If all your tasks are Done, you may stop polling.";
           this.pty.write(nudge);
           setTimeout(() => {
             if (this.status === "running") {
@@ -198,7 +198,7 @@ class Session {
             }
           }, 500);
         }
-      }, WAKE_INTERVAL_MS);
+      }, this._wakeIntervalMs);
     }, startDelay);
   }
 
@@ -267,11 +267,11 @@ class SessionManager {
     this.instanceCounter = 0;
   }
 
-  create({ name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath } = {}) {
+  create({ name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval } = {}) {
     const id = uuidv4();
     this.instanceCounter++;
     const sessionName = name || `Instance ${this.instanceCounter}`;
-    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath });
+    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval });
     this.sessions.set(id, session);
     return session;
   }

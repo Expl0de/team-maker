@@ -3,16 +3,20 @@ import { writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import sessionManager from "./sessionManager.js";
+import { buildOrchestratorPrompt, BUILTIN_ROLES } from "./promptBuilder.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER_PATH = join(__dirname, "mcpServer.js");
 
 class Team {
-  constructor({ id, name, cwd, prompt }) {
+  constructor({ id, name, cwd, prompt, roles, wakeInterval, sessionId }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
     this.prompt = prompt;
+    this.roles = roles;
+    this.wakeInterval = wakeInterval;
+    this.sessionId = sessionId;
     this.mainAgentId = null;
     this.agentIds = [];
     this.agentCounter = 0;
@@ -25,6 +29,8 @@ class Team {
       name: this.name,
       cwd: this.cwd,
       prompt: this.prompt,
+      roles: this.roles,
+      wakeInterval: this.wakeInterval,
       mainAgentId: this.mainAgentId,
       agentIds: this.agentIds,
       createdAt: this.createdAt.toISOString(),
@@ -37,9 +43,25 @@ class TeamManager {
     this.teams = new Map();
   }
 
-  create({ name, cwd, prompt }) {
+  create({ name, cwd, prompt, roles, wakeInterval = 60 }) {
     const id = uuidv4();
-    const team = new Team({ id, name, cwd, prompt });
+
+    // Use provided roles or default built-in roles
+    const teamRoles = roles && roles.length > 0 ? roles : [...BUILTIN_ROLES];
+
+    // Generate a timestamp-based session ID for directory naming
+    const now = new Date();
+    const sessionId = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+      "-",
+      String(now.getHours()).padStart(2, "0"),
+      String(now.getMinutes()).padStart(2, "0"),
+      String(now.getSeconds()).padStart(2, "0"),
+    ].join("");
+
+    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, wakeInterval, sessionId });
     this.teams.set(id, team);
 
     // Write MCP config for this team
@@ -56,15 +78,15 @@ class TeamManager {
     };
     writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
 
-    // Build orchestrator prompt
-    const orchestratorPrompt = `You are the orchestrator for team "${name}". You have MCP tools:
-- spawn_agent(name, prompt) — spawn a new agent in your team
-- list_agents() — list all agents in your team
-- send_message(agentId, message) — send input to another agent
-
-Your task: ${prompt}
-
-Break this down, spawn specialist agents, and coordinate them.`;
+    // Build comprehensive orchestrator prompt
+    const orchestratorPrompt = buildOrchestratorPrompt({
+      teamName: name,
+      sessionId,
+      cwd: cwd || process.env.HOME,
+      taskPrompt: prompt,
+      roles: teamRoles,
+      wakeInterval,
+    });
 
     // Spawn main agent session
     const session = sessionManager.create({
@@ -75,6 +97,7 @@ Break this down, spawn specialist agents, and coordinate them.`;
       teamId: id,
       role: "main",
       mcpConfigPath,
+      wakeInterval,
     });
 
     team.mainAgentId = session.id;

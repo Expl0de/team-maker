@@ -348,8 +348,10 @@ header h1 {
   border: 1px solid #313244;
   border-radius: 12px;
   padding: 24px;
-  width: 480px;
+  width: 640px;
   max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .modal h2 {
@@ -494,4 +496,238 @@ header h1 {
 #team-list::-webkit-scrollbar-thumb {
   background: #313244;
   border-radius: 2px;
+}
+
+/* Role Editor */
+.role-editor-section {
+  margin-top: 16px;
+  border-top: 1px solid #313244;
+  padding-top: 16px;
+}
+
+.role-editor-section > label {
+  font-size: 12px;
+  color: #a6adc8;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.wake-interval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.wake-interval-row input[type="number"] {
+  width: 80px;
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #cdd6f4;
+  font-size: 13px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  outline: none;
+}
+
+.wake-interval-row input[type="number"]:focus {
+  border-color: #cba6f7;
+}
+
+.wake-interval-unit {
+  font-size: 12px;
+  color: #6c7086;
+}
+
+.template-picker-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.template-picker-row select {
+  flex: 1;
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #cdd6f4;
+  font-size: 13px;
+  outline: none;
+}
+
+.template-picker-row select:focus {
+  border-color: #cba6f7;
+}
+
+.modal-btn.small {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.modal-btn.danger:hover {
+  background: #f38ba8;
+  color: #1e1e2e;
+}
+
+.role-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  background: #1e1e2e;
+}
+
+.role-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.role-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.role-list::-webkit-scrollbar-thumb {
+  background: #313244;
+  border-radius: 2px;
+}
+
+.role-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #313244;
+}
+
+.role-item:last-child {
+  border-bottom: none;
+}
+
+.role-item-number {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6c7086;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.role-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.role-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.role-item-responsibility {
+  font-size: 11px;
+  color: #6c7086;
+}
+
+.role-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.role-item-actions button {
+  background: none;
+  border: 1px solid #313244;
+  color: #6c7086;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.role-item-actions button:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.role-item-actions button.remove-role:hover {
+  color: #f38ba8;
+  border-color: #f38ba8;
+}
+
+/* Role inline edit form */
+.role-edit-form {
+  padding: 10px;
+  border-bottom: 1px solid #313244;
+  background: #181825;
+}
+
+.role-edit-form:last-child {
+  border-bottom: none;
+}
+
+.role-edit-form .role-edit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.role-edit-form input,
+.role-edit-form textarea {
+  width: 100%;
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: #cdd6f4;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  outline: none;
+}
+
+.role-edit-form input:focus,
+.role-edit-form textarea:focus {
+  border-color: #cba6f7;
+}
+
+.role-edit-form textarea {
+  resize: vertical;
+  min-height: 40px;
+}
+
+.role-edit-form .role-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.role-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.quick-add-wrapper select {
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: #cdd6f4;
+  font-size: 11px;
+  outline: none;
+}
+
+.quick-add-wrapper select:focus {
+  border-color: #cba6f7;
+}
+
+.role-list-empty {
+  padding: 16px;
+  text-align: center;
+  color: #6c7086;
+  font-size: 12px;
 }
