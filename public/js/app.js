@@ -31,6 +31,17 @@ function handleQuestionAlert(sessionId) {
   }
 }
 
+function handleActivityUpdate(sessionId, active) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  const dot = session.tabEl.querySelector(".status-dot");
+  if (active) {
+    dot.classList.add("working");
+  } else {
+    dot.classList.remove("working");
+  }
+}
+
 // DOM elements
 const tabBar = document.getElementById("tab-bar");
 const terminalContainer = document.getElementById("terminal-container");
@@ -245,6 +256,10 @@ function attachSession(data) {
           handleQuestionAlert(msg.sessionId);
           return;
         }
+        if (msg.type === "activity") {
+          handleActivityUpdate(msg.sessionId, msg.active);
+          return;
+        }
         // Handle team-update broadcasts
         if (msg.type === "team-update") {
           handleTeamUpdate(msg);
@@ -303,6 +318,10 @@ function reconnect(sessionId) {
         }
         if (msg.type === "question") {
           handleQuestionAlert(msg.sessionId);
+          return;
+        }
+        if (msg.type === "activity") {
+          handleActivityUpdate(msg.sessionId, msg.active);
           return;
         }
         if (msg.type === "team-update") {

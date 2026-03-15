@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
 const PLAIN_BUFFER_SIZE = 2048; // rolling buffer for pattern detection
+const WAKE_INTERVAL_MS = 60 * 1000; // 60 seconds between wake-up nudges
 
 // Strip ANSI escape sequences and control characters from terminal data
 function stripAnsi(str) {
@@ -46,6 +47,10 @@ class Session {
     this.usage = { bytesIn: 0, bytesOut: 0 };
     this._lastQuestionAlert = 0; // debounce timestamp
     this._plainBuffer = ""; // rolling buffer of stripped text for pattern matching
+    this._lastOutputTime = Date.now(); // track last PTY output for idle detection
+    this._wakeInterval = null; // server-side wake-up timer for agents
+    this._active = false; // whether the session is actively producing output
+    this._activityTimer = null; // timer to detect when output stops
 
     const claudePath = process.env.CLAUDE_PATH || "/Users/tung/.local/bin/claude";
     const args = [];
@@ -70,12 +75,30 @@ class Session {
       this._injectPrompt(initialPrompt);
     }
 
+    // Start server-side wake-up interval for team agents
+    if (teamId) {
+      this._startWakeLoop();
+    }
+
     this.pty.onData((data) => {
       this.usage.bytesOut += data.length;
+      this._lastOutputTime = Date.now();
       this.scrollback += data;
       if (this.scrollback.length > MAX_SCROLLBACK) {
         this.scrollback = this.scrollback.slice(-MAX_SCROLLBACK);
       }
+
+      // Track activity state — mark active when output arrives,
+      // mark idle after 3s of silence
+      if (!this._active) {
+        this._active = true;
+        this._broadcastStatus();
+      }
+      clearTimeout(this._activityTimer);
+      this._activityTimer = setTimeout(() => {
+        this._active = false;
+        this._broadcastStatus();
+      }, 3000);
 
       // Accumulate stripped text into rolling buffer for pattern detection
       this._plainBuffer += stripAnsi(data);
@@ -129,12 +152,53 @@ class Session {
 
   _injectPrompt(prompt) {
     // Claude Code TUI continuously renders, so we wait a fixed delay
-    // for the CLI to finish startup before typing the prompt
+    // for the CLI to finish startup before typing the prompt.
+    // We paste the text first, then press Enter after a short delay
+    // so the TUI input has time to process the pasted content.
     setTimeout(() => {
       if (this.status === "running") {
-        this.pty.write(prompt + "\r");
+        this.pty.write(prompt);
+        setTimeout(() => {
+          if (this.status === "running") {
+            this.pty.write("\r");
+          }
+        }, 500);
       }
     }, 5000);
+  }
+
+  _broadcastStatus() {
+    for (const ws of this.clients) {
+      try {
+        ws.send(JSON.stringify({ type: "activity", sessionId: this.id, active: this._active }));
+      } catch {}
+    }
+  }
+
+  _startWakeLoop() {
+    // Wait for initial prompt to finish before starting the wake loop
+    const startDelay = 30000; // 30s — give agent time to process initial prompt
+    setTimeout(() => {
+      if (this.status !== "running") return;
+      this._wakeInterval = setInterval(() => {
+        if (this.status !== "running") {
+          clearInterval(this._wakeInterval);
+          this._wakeInterval = null;
+          return;
+        }
+        // Only nudge if agent has been idle (no output for 30+ seconds)
+        const idleMs = Date.now() - this._lastOutputTime;
+        if (idleMs > 30000) {
+          const nudge = "Check your inbox (AGENT_COMMUNICATE.md) and shared plan (MULTI_AGENT_PLAN.md) now. If you have pending tasks, work on them. If idle, report status to Agent 0.";
+          this.pty.write(nudge);
+          setTimeout(() => {
+            if (this.status === "running") {
+              this.pty.write("\r");
+            }
+          }, 500);
+        }
+      }, WAKE_INTERVAL_MS);
+    }, startDelay);
   }
 
   write(data) {
@@ -166,6 +230,10 @@ class Session {
 
   kill() {
     if (this.status === "running") {
+      if (this._wakeInterval) {
+        clearInterval(this._wakeInterval);
+        this._wakeInterval = null;
+      }
       this.pty.kill();
       this.status = "exited";
     }
