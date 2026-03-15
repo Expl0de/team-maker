@@ -18,8 +18,8 @@ Browser (xterm.js) <--WebSocket--> Express Server <--PTY--> Claude Code CLI
 ```
 
 - **server/index.js** — Express HTTP server + WebSocket server. REST endpoints for session CRUD, a `/api/browse-folder` endpoint that opens a native macOS Finder dialog via `osascript`, and WebSocket handling for attaching to sessions and proxying terminal I/O.
-- **server/sessionManager.js** — Singleton `SessionManager` with a `Session` class. Each session spawns a `node-pty` process running the Claude CLI, maintains a 100KB scrollback buffer, and tracks connected WebSocket clients.
-- **public/** — Vanilla HTML/CSS/JS frontend (no build step, no framework). xterm.js and addons loaded from CDN. `app.js` manages tabs, WebSocket connections, terminal instances, and a modal for selecting the working directory before starting a session.
+- **server/sessionManager.js** — Singleton `SessionManager` with a `Session` class. Each session spawns a `node-pty` process running the Claude CLI, maintains a 100KB scrollback buffer, and tracks connected WebSocket clients. Includes question detection: strips ANSI from PTY output into a rolling plain-text buffer and pattern-matches for permission/dialog prompts, sending `{type: "question"}` over WebSocket.
+- **public/** — Vanilla HTML/CSS/JS frontend (no build step, no framework). xterm.js and addons loaded from CDN. `app.js` manages tabs, WebSocket connections, terminal instances, a modal for selecting the working directory before starting a session, and plays a Web Audio alert sound + pulses the tab dot yellow when a session has a question dialog.
 
 ## Key Conventions
 

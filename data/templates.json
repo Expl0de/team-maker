@@ -1,0 +1,39 @@
+[
+  {
+    "id": "41ed2e57-2f2c-4f3f-84db-86ef8226e3c7",
+    "name": "5 Boys Dev Team",
+    "roles": [
+      {
+        "id": "architect",
+        "title": "Architect",
+        "responsibility": "Research & Planning",
+        "description": "System exploration, requirements analysis, architecture planning, design documents. Focus: Understanding the big picture and creating the roadmap."
+      },
+      {
+        "id": "builder",
+        "title": "Builder",
+        "responsibility": "Core Implementation",
+        "description": "Feature development, main implementation work, core functionality. Focus: Building the actual solution based on plans."
+      },
+      {
+        "id": "validator",
+        "title": "Validator",
+        "responsibility": "Testing & Validation",
+        "description": "Writing tests, validation scripts, debugging, quality assurance. Focus: Ensuring code quality and catching issues early."
+      },
+      {
+        "id": "scribe",
+        "title": "Scribe",
+        "responsibility": "Documentation & Refinement",
+        "description": "Documentation creation, code refinement, usage guides, examples. Focus: Making the work understandable and maintainable."
+      },
+      {
+        "id": "reviewer",
+        "title": "Reviewer",
+        "responsibility": "Code Review & Quality",
+        "description": "Code review, best practices enforcement, performance analysis, refactoring suggestions. Focus: Maintaining high code quality standards."
+      }
+    ],
+    "createdAt": "2026-03-15T08:42:16.562Z"
+  }
+]
