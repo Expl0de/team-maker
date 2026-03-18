@@ -1,8 +1,13 @@
 import pty from "node-pty";
 import { v4 as uuidv4 } from "uuid";
+import { readFile } from "fs/promises";
+import { join } from "path";
+import { homedir } from "os";
 
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
 const PLAIN_BUFFER_SIZE = 2048; // rolling buffer for pattern detection
+const JSONL_POLL_INTERVAL = 5000; // read JSONL logs every 5 seconds
+
 // Strip ANSI escape sequences and control characters from terminal data
 function stripAnsi(str) {
   return str
@@ -16,6 +21,60 @@ function stripAnsi(str) {
     .replace(/\x1b/g, "")
     // Control chars except newline/tab
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+}
+
+/**
+ * Derive the Claude Code JSONL log file path for a session.
+ * Claude Code stores logs at: ~/.claude/projects/<project-hash>/<sessionId>.jsonl
+ * where <project-hash> is the cwd with "/" replaced by "-".
+ */
+function getJsonlPath(cwd, sessionId) {
+  const normalizedCwd = cwd.replace(/\/+$/, ""); // strip trailing slashes
+  const projectHash = "-" + normalizedCwd.replace(/^\//, "").replace(/\//g, "-");
+  return join(homedir(), ".claude", "projects", projectHash, `${sessionId}.jsonl`);
+}
+
+/**
+ * Parse a Claude Code JSONL log file and aggregate token usage from assistant messages.
+ * Each assistant message has a message.usage object with structured token counts.
+ */
+async function parseJsonlUsage(filePath) {
+  const usage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: 0,
+  };
+
+  let content;
+  try {
+    content = await readFile(filePath, "utf-8");
+  } catch {
+    return usage; // File doesn't exist yet or can't be read
+  }
+
+  const lines = content.trim().split("\n");
+  for (const line of lines) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (entry.type !== "assistant" || !entry.message?.usage) continue;
+
+    const u = entry.message.usage;
+    usage.inputTokens += u.input_tokens || 0;
+    usage.outputTokens += u.output_tokens || 0;
+    usage.cacheRead += u.cache_read_input_tokens || 0;
+    usage.cacheWrite += u.cache_creation_input_tokens || 0;
+  }
+
+  usage.totalTokens = usage.inputTokens + usage.outputTokens + usage.cacheRead + usage.cacheWrite;
+  return usage;
 }
 
 // Patterns that indicate Claude Code is asking a question / waiting for input
@@ -44,6 +103,7 @@ class Session {
     this.scrollback = "";
     this.clients = new Set();
     this.usage = { bytesIn: 0, bytesOut: 0 };
+    this.tokenUsage = { inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0, cost: 0, totalTokens: 0 };
     this._lastQuestionAlert = 0; // debounce timestamp
     this._plainBuffer = ""; // rolling buffer of stripped text for pattern matching
     this._lastOutputTime = Date.now(); // track last PTY output for idle detection
@@ -52,8 +112,14 @@ class Session {
     this._active = false; // whether the session is actively producing output
     this._activityTimer = null; // timer to detect when output stops
 
+    // JSONL log file path — we pass --session-id to Claude CLI so the log file
+    // is at a predictable path: ~/.claude/projects/<project-hash>/<id>.jsonl
+    this._jsonlPath = getJsonlPath(cwd || process.env.HOME, id);
+    console.log(`[Session ${id}] JSONL path: ${this._jsonlPath}`);
+    this._jsonlTimer = null; // periodic JSONL polling timer
+
     const claudePath = process.env.CLAUDE_PATH || "/Users/tung/.local/bin/claude";
-    const args = [];
+    const args = ["--session-id", id];
     if (autoAccept) args.push("--permission-mode", "auto");
     if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
 
@@ -106,6 +172,11 @@ class Session {
         this._plainBuffer = this._plainBuffer.slice(-PLAIN_BUFFER_SIZE);
       }
 
+      // Start JSONL polling on first output (Claude CLI has started)
+      if (!this._jsonlTimer) {
+        this._startJsonlPolling();
+      }
+
       // Check for question/dialog patterns (debounced to 3s)
       const now = Date.now();
       if (now - this._lastQuestionAlert > 3000) {
@@ -132,6 +203,18 @@ class Session {
     this.pty.onExit(({ exitCode }) => {
       this.status = "exited";
       this.exitCode = exitCode;
+      // Final JSONL read to capture last usage before exit
+      if (this._jsonlTimer) {
+        clearInterval(this._jsonlTimer);
+        this._jsonlTimer = null;
+      }
+      parseJsonlUsage(this._jsonlPath).then((usage) => {
+        this.tokenUsage.inputTokens = usage.inputTokens;
+        this.tokenUsage.outputTokens = usage.outputTokens;
+        this.tokenUsage.cacheRead = usage.cacheRead;
+        this.tokenUsage.cacheWrite = usage.cacheWrite;
+        this.tokenUsage.totalTokens = usage.totalTokens;
+      }).catch(() => {});
       for (const ws of this.clients) {
         try {
           ws.send(JSON.stringify({ type: "exit", exitCode }));
@@ -165,6 +248,25 @@ class Session {
         }, 500);
       }
     }, 5000);
+  }
+
+  _startJsonlPolling() {
+    // Poll the JSONL log file periodically to update token usage
+    const poll = async () => {
+      try {
+        const usage = await parseJsonlUsage(this._jsonlPath);
+        this.tokenUsage.inputTokens = usage.inputTokens;
+        this.tokenUsage.outputTokens = usage.outputTokens;
+        this.tokenUsage.cacheRead = usage.cacheRead;
+        this.tokenUsage.cacheWrite = usage.cacheWrite;
+        this.tokenUsage.totalTokens = usage.totalTokens;
+        // cost stays 0 — JSONL doesn't include dollar amounts
+      } catch {
+        // Ignore read errors — file may not exist yet
+      }
+    };
+    poll(); // Run immediately
+    this._jsonlTimer = setInterval(poll, JSONL_POLL_INTERVAL);
   }
 
   _broadcastStatus() {
@@ -235,6 +337,10 @@ class Session {
         clearInterval(this._wakeInterval);
         this._wakeInterval = null;
       }
+      if (this._jsonlTimer) {
+        clearInterval(this._jsonlTimer);
+        this._jsonlTimer = null;
+      }
       this.pty.kill();
       this.status = "exited";
     }
@@ -256,6 +362,7 @@ class Session {
         bytesOut: this.usage.bytesOut,
         durationMs: Date.now() - this.createdAt.getTime(),
       },
+      tokenUsage: { ...this.tokenUsage },
       clientCount: this.clients.size,
     };
   }

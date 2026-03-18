@@ -3,12 +3,163 @@ const sessions = new Map(); // sessionId -> { id, name, teamId, role, terminal, 
 let activeTeamId = null;
 let activeSessionId = null;
 
+// Usage tab state
+let usageTabActive = false;
+let usageRefreshInterval = null;
+
 // Role editor state
 let currentRoles = [];
 let editingRoleIndex = -1;
 let savedTemplates = [];
 let builtinRoles = [];
 let extraRoles = [];
+
+// --- Usage formatting helpers ---
+
+function formatTokens(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+  return n.toLocaleString();
+}
+
+function formatCost(n) {
+  return "$" + n.toFixed(4);
+}
+
+function formatDuration(ms) {
+  const secs = Math.floor(ms / 1000);
+  const mins = Math.floor(secs / 60);
+  const hrs = Math.floor(mins / 60);
+  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
+  if (mins > 0) return `${mins}m ${secs % 60}s`;
+  return `${secs}s`;
+}
+
+function formatBytes(b) {
+  if (b >= 1048576) return (b / 1048576).toFixed(1) + " MB";
+  if (b >= 1024) return (b / 1024).toFixed(1) + " KB";
+  return b + " B";
+}
+
+function renderUsageSummaryHTML(totals) {
+  const detailedTokens = totals.inputTokens + totals.outputTokens;
+  const totalTokens = detailedTokens > 0 ? detailedTokens : (totals.totalTokens || 0);
+  return `
+    <div class="usage-summary-grid">
+      <div class="usage-summary-card">
+        <div class="usage-label">Total Cost</div>
+        <div class="usage-value cost">${formatCost(totals.cost)}</div>
+      </div>
+      <div class="usage-summary-card">
+        <div class="usage-label">Total Tokens</div>
+        <div class="usage-value tokens">${formatTokens(totalTokens)}</div>
+      </div>
+      <div class="usage-summary-card">
+        <div class="usage-label">Input Tokens</div>
+        <div class="usage-value tokens">${formatTokens(totals.inputTokens)}</div>
+      </div>
+      <div class="usage-summary-card">
+        <div class="usage-label">Output Tokens</div>
+        <div class="usage-value tokens">${formatTokens(totals.outputTokens)}</div>
+      </div>
+      <div class="usage-summary-card">
+        <div class="usage-label">Cache Read</div>
+        <div class="usage-value tokens">${formatTokens(totals.cacheRead)}</div>
+      </div>
+      <div class="usage-summary-card">
+        <div class="usage-label">Cache Create</div>
+        <div class="usage-value tokens">${formatTokens(totals.cacheWrite)}</div>
+      </div>
+      <div class="usage-summary-card">
+        <div class="usage-label">Duration</div>
+        <div class="usage-value duration">${formatDuration(totals.durationMs)}</div>
+      </div>
+      <div class="usage-summary-card">
+        <div class="usage-label">Data I/O</div>
+        <div class="usage-value">${formatBytes(totals.bytesIn + totals.bytesOut)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderUsageAgentTableHTML(agents) {
+  if (!agents || agents.length === 0) return '<div class="usage-empty">No agents</div>';
+  const rows = agents.map(a => {
+    const roleLabel = a.role === "main" ? "main" : (a.agentIndex || "?");
+    const roleClass = a.role === "main" ? "" : " agent";
+    const statusClass = a.status === "running" ? "running" : "exited";
+    const detailedTokens = a.tokenUsage.inputTokens + a.tokenUsage.outputTokens;
+    const totalTokens = detailedTokens > 0 ? detailedTokens : (a.tokenUsage.totalTokens || 0);
+    return `
+      <tr>
+        <td>
+          <span class="usage-status-dot ${statusClass}"></span>
+          <span class="usage-agent-name">${a.name}</span>
+          <span class="usage-role-badge${roleClass}">${roleLabel}</span>
+        </td>
+        <td class="usage-cost-cell">${formatCost(a.tokenUsage.cost)}</td>
+        <td class="usage-token-cell">${formatTokens(totalTokens)}</td>
+        <td class="usage-token-cell">${formatTokens(a.tokenUsage.inputTokens)}</td>
+        <td class="usage-token-cell">${formatTokens(a.tokenUsage.outputTokens)}</td>
+        <td class="usage-token-cell">${formatTokens(a.tokenUsage.cacheRead)}</td>
+        <td class="usage-token-cell">${formatTokens(a.tokenUsage.cacheWrite)}</td>
+        <td>${formatBytes(a.usage.bytesIn)}</td>
+        <td>${formatBytes(a.usage.bytesOut)}</td>
+        <td>${formatDuration(a.usage.durationMs)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  return `
+    <h3 class="usage-section-title">Agent Breakdown</h3>
+    <table class="usage-agent-table">
+      <thead>
+        <tr>
+          <th>Agent</th>
+          <th>Cost</th>
+          <th>Tokens</th>
+          <th>Input</th>
+          <th>Output</th>
+          <th>Cache Read</th>
+          <th>Cache Write</th>
+          <th>Bytes In</th>
+          <th>Bytes Out</th>
+          <th>Duration</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function refreshUsagePanel() {
+  if (!activeTeamId) return;
+  const panel = document.getElementById("usage-panel-content");
+  try {
+    const res = await fetch(`/api/teams/${activeTeamId}/usage`);
+    if (!res.ok) throw new Error("Team not found");
+    const data = await res.json();
+    panel.innerHTML = renderUsageSummaryHTML(data.totals) + renderUsageAgentTableHTML(data.agents);
+  } catch (err) {
+    panel.innerHTML = `<div class="usage-empty">Error loading usage: ${err.message}</div>`;
+  }
+}
+
+async function refreshSidebarTokens() {
+  for (const [teamId, team] of teams) {
+    try {
+      const res = await fetch(`/api/teams/${teamId}/usage`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const detailedTokens = data.totals.inputTokens + data.totals.outputTokens;
+      const totalTokens = detailedTokens > 0 ? detailedTokens : (data.totals.totalTokens || 0);
+      const el = teamList.querySelector(`[data-team-id="${teamId}"] .team-item-tokens`);
+      if (el) {
+        el.textContent = `${formatTokens(totalTokens)} tokens · ${formatCost(data.totals.cost)}`;
+      }
+    } catch {}
+  }
+}
 
 // Alert sound using Web Audio API
 let audioCtx = null;
@@ -137,6 +288,7 @@ function renderTeamItem(team) {
     <div class="team-item-info">
       <span class="team-item-name">${team.name}</span>
       <span class="team-item-badge">${team.agentIds.length} agent${team.agentIds.length !== 1 ? "s" : ""}</span>
+      <span class="team-item-tokens"></span>
     </div>
     <button class="delete-team-btn" title="Delete team">&times;</button>
   `;
@@ -172,31 +324,48 @@ function selectTeam(teamId) {
   // Enable/disable new agent button
   newAgentBtn.disabled = !teamId;
 
+  // Show/hide usage tab
+  const usageTab = tabBar.querySelector(".tab-usage");
+  if (teamId) {
+    if (!usageTab) {
+      createUsageTab();
+    } else {
+      usageTab.style.display = "";
+    }
+  } else if (usageTab) {
+    usageTab.style.display = "none";
+  }
+
   // Show only tabs for this team, hide others
-  tabBar.querySelectorAll(".tab").forEach((t) => {
+  tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => {
     const session = sessions.get(t.dataset.id);
     t.style.display = (session && session.teamId === teamId) ? "" : "none";
   });
-  terminalContainer.querySelectorAll(".terminal-wrapper").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => {
     const session = sessions.get(w.dataset.id);
     if (!session || session.teamId !== teamId) {
       w.classList.remove("active");
     }
   });
 
-  // Switch to the first visible tab in this team, or the active one if it belongs
-  const team = teams.get(teamId);
-  if (team && team.agentIds.length > 0) {
-    const currentBelongsToTeam = activeSessionId && sessions.get(activeSessionId)?.teamId === teamId;
-    if (!currentBelongsToTeam) {
-      switchTab(team.agentIds[0]);
-    } else {
-      switchTab(activeSessionId);
-    }
-    emptyState.style.display = "none";
+  // If usage tab was active, keep it; otherwise switch to an agent tab
+  if (usageTabActive) {
+    switchToUsageTab();
   } else {
-    activeSessionId = null;
-    emptyState.style.display = "";
+    // Switch to the first visible tab in this team, or the active one if it belongs
+    const team = teams.get(teamId);
+    if (team && team.agentIds.length > 0) {
+      const currentBelongsToTeam = activeSessionId && sessions.get(activeSessionId)?.teamId === teamId;
+      if (!currentBelongsToTeam) {
+        switchTab(team.agentIds[0]);
+      } else {
+        switchTab(activeSessionId);
+      }
+      emptyState.style.display = "none";
+    } else {
+      activeSessionId = null;
+      emptyState.style.display = "";
+    }
   }
 
   updateSessionCount();
@@ -372,12 +541,19 @@ function reconnect(sessionId) {
 
 function switchTab(sessionId) {
   activeSessionId = sessionId;
+  usageTabActive = false;
 
-  tabBar.querySelectorAll(".tab").forEach((t) => {
+  // Deactivate usage tab and panel
+  const usageTab = tabBar.querySelector(".tab-usage");
+  if (usageTab) usageTab.classList.remove("active");
+  document.getElementById("usage-panel").classList.remove("active");
+  stopUsageAutoRefresh();
+
+  tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => {
     t.classList.toggle("active", t.dataset.id === sessionId);
   });
 
-  terminalContainer.querySelectorAll(".terminal-wrapper").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => {
     w.classList.toggle("active", w.dataset.id === sessionId);
   });
 
@@ -391,6 +567,56 @@ function switchTab(sessionId) {
       sendResize(session);
       session.terminal.focus();
     }, 50);
+  }
+}
+
+// --- Usage tab ---
+
+function createUsageTab() {
+  // Remove existing usage tab if any
+  const existing = tabBar.querySelector(".tab-usage");
+  if (existing) existing.remove();
+
+  const tab = document.createElement("div");
+  tab.className = "tab tab-usage";
+  tab.innerHTML = `<span class="usage-tab-icon">📊</span><span class="tab-name">Usage</span>`;
+  tab.addEventListener("click", () => switchToUsageTab());
+
+  // Insert as first tab
+  tabBar.prepend(tab);
+  return tab;
+}
+
+function switchToUsageTab() {
+  usageTabActive = true;
+  activeSessionId = null;
+
+  // Deactivate all agent tabs and wrappers
+  tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => t.classList.remove("active"));
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => w.classList.remove("active"));
+
+  // Activate usage tab and panel
+  const usageTab = tabBar.querySelector(".tab-usage");
+  if (usageTab) usageTab.classList.add("active");
+  document.getElementById("usage-panel").classList.add("active");
+  emptyState.style.display = "none";
+
+  // Fetch and render usage data
+  refreshUsagePanel();
+  startUsageAutoRefresh();
+}
+
+function startUsageAutoRefresh() {
+  stopUsageAutoRefresh();
+  usageRefreshInterval = setInterval(() => {
+    if (usageTabActive && activeTeamId) refreshUsagePanel();
+  }, 5000);
+}
+
+function stopUsageAutoRefresh() {
+  if (usageRefreshInterval) {
+    clearInterval(usageRefreshInterval);
+    usageRefreshInterval = null;
   }
 }
 
@@ -917,25 +1143,38 @@ window.addEventListener("resize", () => {
 
 // --- Usage polling ---
 setInterval(async () => {
-  if (sessions.size === 0) return;
-  try {
-    const res = await fetch("/api/sessions");
-    const list = await res.json();
-    for (const data of list) {
-      const session = sessions.get(data.id);
-      if (session && data.id === activeSessionId) {
-        const dur = Math.floor(data.usage.durationMs / 1000);
-        const mins = Math.floor(dur / 60);
-        const secs = dur % 60;
-        const inKB = (data.usage.bytesIn / 1024).toFixed(1);
-        const outKB = (data.usage.bytesOut / 1024).toFixed(1);
-        statusText.textContent = `${data.name} | ${data.status} | ${mins}m ${secs}s | In: ${inKB}KB | Out: ${outKB}KB`;
+  // Status bar update for active session
+  if (sessions.size > 0) {
+    try {
+      const res = await fetch("/api/sessions");
+      const list = await res.json();
+      for (const data of list) {
+        const session = sessions.get(data.id);
+        if (session && data.id === activeSessionId) {
+          const dur = Math.floor(data.usage.durationMs / 1000);
+          const mins = Math.floor(dur / 60);
+          const secs = dur % 60;
+          const inKB = (data.usage.bytesIn / 1024).toFixed(1);
+          const outKB = (data.usage.bytesOut / 1024).toFixed(1);
+          statusText.textContent = `${data.name} | ${data.status} | ${mins}m ${secs}s | In: ${inKB}KB | Out: ${outKB}KB`;
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
+
+  // Sidebar token summary update
+  if (teams.size > 0) {
+    refreshSidebarTokens();
+  }
 }, 5000);
 
 // --- Event listeners ---
+
+// Usage tab
+document.getElementById("usage-btn").addEventListener("click", () => {
+  if (!activeTeamId) return;
+  switchToUsageTab();
+});
 
 // Team modal
 newTeamBtn.addEventListener("click", showNewTeamModal);

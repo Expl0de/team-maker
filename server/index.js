@@ -142,6 +142,38 @@ app.post("/api/teams/:teamId/agents", (req, res) => {
   res.json(session.toJSON());
 });
 
+app.get("/api/teams/:teamId/usage", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  const agents = teamManager.getAgents(req.params.teamId);
+  const agentUsage = agents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    role: a.role,
+    agentIndex: a.agentIndex,
+    status: a.status,
+    usage: a.usage,
+    tokenUsage: a.tokenUsage,
+  }));
+  // Compute team totals
+  const totals = {
+    inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0, cost: 0,
+    totalTokens: 0, bytesIn: 0, bytesOut: 0, durationMs: 0,
+  };
+  for (const a of agentUsage) {
+    totals.inputTokens += a.tokenUsage.inputTokens;
+    totals.outputTokens += a.tokenUsage.outputTokens;
+    totals.cacheRead += a.tokenUsage.cacheRead;
+    totals.cacheWrite += a.tokenUsage.cacheWrite;
+    totals.cost += a.tokenUsage.cost;
+    totals.totalTokens += a.tokenUsage.totalTokens || 0;
+    totals.bytesIn += a.usage.bytesIn;
+    totals.bytesOut += a.usage.bytesOut;
+    if (a.usage.durationMs > totals.durationMs) totals.durationMs = a.usage.durationMs;
+  }
+  res.json({ team: team.toJSON(), agents: agentUsage, totals });
+});
+
 app.get("/api/teams/:teamId/agents", (req, res) => {
   const agents = teamManager.getAgents(req.params.teamId);
   if (!agents) return res.status(404).json({ error: "Team not found" });
