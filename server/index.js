@@ -45,8 +45,8 @@ app.get("/api/browse-folder", async (req, res) => {
 
 // REST API
 app.post("/api/sessions", (req, res) => {
-  const { name, cwd, autoAccept, initialPrompt } = req.body || {};
-  const session = sessionManager.create({ name, cwd, autoAccept, initialPrompt });
+  const { name, cwd, autoAccept, initialPrompt, model } = req.body || {};
+  const session = sessionManager.create({ name, cwd, autoAccept, initialPrompt, model });
   res.json(session.toJSON());
 });
 
@@ -109,9 +109,9 @@ app.get("/api/builtin-roles", (req, res) => {
 
 // Team API
 app.post("/api/teams", (req, res) => {
-  const { name, cwd, prompt, roles, wakeInterval } = req.body || {};
+  const { name, cwd, prompt, roles, wakeInterval, model } = req.body || {};
   if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
-  const { team, session } = teamManager.create({ name, cwd, prompt, roles, wakeInterval });
+  const { team, session } = teamManager.create({ name, cwd, prompt, roles, wakeInterval, model });
   broadcast({ type: "team-update", teamId: team.id, event: "team-created", team: team.toJSON(), agent: session.toJSON() });
   res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
 });
@@ -134,9 +134,9 @@ app.delete("/api/teams/:teamId", (req, res) => {
 });
 
 app.post("/api/teams/:teamId/agents", (req, res) => {
-  const { name, prompt } = req.body || {};
+  const { name, prompt, model } = req.body || {};
   if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
-  const session = teamManager.addAgent({ teamId: req.params.teamId, name, prompt });
+  const session = teamManager.addAgent({ teamId: req.params.teamId, name, prompt, model });
   if (!session) return res.status(404).json({ error: "Team not found" });
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "agent-added", agent: session.toJSON() });
   res.json(session.toJSON());

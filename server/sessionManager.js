@@ -90,13 +90,14 @@ const QUESTION_PATTERNS = [
 ];
 
 class Session {
-  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval }) {
+  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval, model }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
     this.teamId = teamId || null;
     this.role = role || null; // "main" | "agent"
     this.agentIndex = agentIndex || null;
+    this.model = model || null;
     this.status = "running";
     this.exitCode = null;
     this.createdAt = new Date();
@@ -122,6 +123,7 @@ class Session {
     const args = ["--session-id", id];
     if (autoAccept) args.push("--permission-mode", "auto");
     if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
+    if (model) args.push("--model", model);
 
     this.pty = pty.spawn(claudePath, args, {
       name: "xterm-256color",
@@ -357,6 +359,7 @@ class Session {
       teamId: this.teamId,
       role: this.role,
       agentIndex: this.agentIndex,
+      model: this.model,
       usage: {
         bytesIn: this.usage.bytesIn,
         bytesOut: this.usage.bytesOut,
@@ -374,11 +377,11 @@ class SessionManager {
     this.instanceCounter = 0;
   }
 
-  create({ name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval } = {}) {
+  create({ name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval, model } = {}) {
     const id = uuidv4();
     this.instanceCounter++;
     const sessionName = name || `Instance ${this.instanceCounter}`;
-    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval });
+    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval, model });
     this.sessions.set(id, session);
     return session;
   }

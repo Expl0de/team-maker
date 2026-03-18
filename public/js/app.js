@@ -219,6 +219,10 @@ const modalCancel = document.getElementById("modal-cancel");
 const modalStart = document.getElementById("modal-start");
 const promptInput = document.getElementById("prompt-input");
 
+// Model select elements
+const modelSelect = document.getElementById("model-select");
+const agentModelSelect = document.getElementById("agent-model-select");
+
 // Agent modal elements
 const agentModalOverlay = document.getElementById("agent-modal-overlay");
 const agentNameInput = document.getElementById("agent-name-input");
@@ -234,6 +238,18 @@ const templateDeleteBtn = document.getElementById("template-delete-btn");
 const roleListEl = document.getElementById("role-list");
 const addRoleBtn = document.getElementById("add-role-btn");
 const quickAddSelect = document.getElementById("quick-add-select");
+
+const MODEL_OPTIONS = [
+  { value: "", label: "Default" },
+  { value: "claude-opus-4-6", label: "Opus" },
+  { value: "claude-sonnet-4-6", label: "Sonnet" },
+  { value: "claude-haiku-4-5-20251001", label: "Haiku" },
+];
+
+function modelLabel(value) {
+  const opt = MODEL_OPTIONS.find((o) => o.value === value);
+  return opt ? opt.label : "";
+}
 
 function getWsUrl() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -771,10 +787,11 @@ function renderRoleList() {
 function renderRoleItem(role, index) {
   const el = document.createElement("div");
   el.className = "role-item";
+  const modelBadge = role.model ? `<span class="role-model-badge">${modelLabel(role.model)}</span>` : "";
   el.innerHTML = `
     <span class="role-item-number">${index + 1}</span>
     <div class="role-item-info">
-      <span class="role-item-title">${role.title}</span>
+      <span class="role-item-title">${role.title}${modelBadge}</span>
       <span class="role-item-responsibility">${role.responsibility}</span>
     </div>
     <div class="role-item-actions">
@@ -799,11 +816,18 @@ function renderRoleItem(role, index) {
 function renderRoleEditForm(role, index) {
   const el = document.createElement("div");
   el.className = "role-edit-form";
+  const modelOptionsHtml = MODEL_OPTIONS.map(
+    (o) => `<option value="${o.value}"${o.value === (role.model || "") ? " selected" : ""}>${o.label}</option>`
+  ).join("");
   el.innerHTML = `
     <div class="role-edit-fields">
       <input type="text" class="edit-title" value="${role.title}" placeholder="Title (e.g. Architect)" />
       <input type="text" class="edit-responsibility" value="${role.responsibility}" placeholder="Responsibility (e.g. Research & Planning)" />
       <textarea class="edit-description" rows="2" placeholder="Description...">${role.description}</textarea>
+      <div class="role-edit-model-row">
+        <label>Model</label>
+        <select class="edit-model">${modelOptionsHtml}</select>
+      </div>
     </div>
     <div class="role-edit-actions">
       <button class="modal-btn secondary small cancel-edit">Cancel</button>
@@ -814,8 +838,9 @@ function renderRoleEditForm(role, index) {
     const title = el.querySelector(".edit-title").value.trim();
     const responsibility = el.querySelector(".edit-responsibility").value.trim();
     const description = el.querySelector(".edit-description").value.trim();
+    const model = el.querySelector(".edit-model").value || undefined;
     if (title && responsibility) {
-      currentRoles[index] = { id: role.id || title.toLowerCase().replace(/\s+/g, "-"), title, responsibility, description };
+      currentRoles[index] = { id: role.id || title.toLowerCase().replace(/\s+/g, "-"), title, responsibility, description, model };
       editingRoleIndex = -1;
       templateSelect.value = "";
       renderRoleList();
@@ -929,6 +954,7 @@ function showNewTeamModal() {
   pathInput.value = "";
   promptInput.value = "";
   wakeIntervalInput.value = "60";
+  modelSelect.value = "";
   // Init with default 4 roles
   currentRoles = builtinRoles.map((r) => ({ ...r }));
   editingRoleIndex = -1;
@@ -945,6 +971,7 @@ function hideModal() {
 function showNewAgentModal() {
   agentNameInput.value = "";
   agentPromptInput.value = "";
+  agentModelSelect.value = "";
   agentModalOverlay.classList.remove("hidden");
   agentNameInput.focus();
 }
@@ -976,6 +1003,7 @@ async function createNewTeam() {
   const prompt = promptInput.value.trim();
   const roles = currentRoles.length > 0 ? currentRoles : undefined;
   const wakeInterval = parseInt(wakeIntervalInput.value, 10) || 60;
+  const model = modelSelect.value || undefined;
 
   if (!name) { teamNameInput.focus(); return; }
   if (!prompt) { promptInput.focus(); return; }
@@ -988,7 +1016,7 @@ async function createNewTeam() {
     const res = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, cwd, prompt, roles, wakeInterval }),
+      body: JSON.stringify({ name, cwd, prompt, roles, wakeInterval, model }),
     });
     const data = await res.json();
 
@@ -1022,6 +1050,7 @@ async function spawnNewAgent() {
 
   const name = agentNameInput.value.trim();
   const prompt = agentPromptInput.value.trim();
+  const model = agentModelSelect.value || undefined;
 
   if (!name) { agentNameInput.focus(); return; }
   if (!prompt) { agentPromptInput.focus(); return; }
@@ -1033,7 +1062,7 @@ async function spawnNewAgent() {
     const res = await fetch(`/api/teams/${activeTeamId}/agents`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, prompt }),
+      body: JSON.stringify({ name, prompt, model }),
     });
     const data = await res.json();
 

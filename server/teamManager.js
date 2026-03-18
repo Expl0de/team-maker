@@ -9,7 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER_PATH = join(__dirname, "mcpServer.js");
 
 class Team {
-  constructor({ id, name, cwd, prompt, roles, wakeInterval, sessionId }) {
+  constructor({ id, name, cwd, prompt, roles, wakeInterval, sessionId, model }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
@@ -17,6 +17,7 @@ class Team {
     this.roles = roles;
     this.wakeInterval = wakeInterval;
     this.sessionId = sessionId;
+    this.model = model || null; // team-level default model
     this.mainAgentId = null;
     this.agentIds = [];
     this.agentCounter = 0;
@@ -43,7 +44,7 @@ class TeamManager {
     this.teams = new Map();
   }
 
-  create({ name, cwd, prompt, roles, wakeInterval = 60 }) {
+  create({ name, cwd, prompt, roles, wakeInterval = 60, model }) {
     const id = uuidv4();
 
     // Use provided roles or default built-in roles
@@ -61,7 +62,7 @@ class TeamManager {
       String(now.getSeconds()).padStart(2, "0"),
     ].join("");
 
-    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, wakeInterval, sessionId });
+    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, wakeInterval, sessionId, model });
     this.teams.set(id, team);
 
     // Write MCP config for this team
@@ -88,6 +89,9 @@ class TeamManager {
       wakeInterval,
     });
 
+    // Determine model for main agent: first role's model > team default
+    const mainModel = (teamRoles[0] && teamRoles[0].model) || model || null;
+
     // Spawn main agent session
     const session = sessionManager.create({
       name,
@@ -98,6 +102,7 @@ class TeamManager {
       role: "main",
       mcpConfigPath,
       wakeInterval,
+      model: mainModel,
     });
 
     team.mainAgentId = session.id;
@@ -114,9 +119,12 @@ class TeamManager {
     return Array.from(this.teams.values()).map((t) => t.toJSON());
   }
 
-  addAgent({ teamId, name, prompt }) {
+  addAgent({ teamId, name, prompt, model }) {
     const team = this.teams.get(teamId);
     if (!team) return null;
+
+    // Use provided model, fall back to team-level default
+    const agentModel = model || team.model || null;
 
     team.agentCounter++;
     const session = sessionManager.create({
@@ -127,6 +135,7 @@ class TeamManager {
       teamId,
       role: "agent",
       agentIndex: team.agentCounter,
+      model: agentModel,
     });
 
     team.agentIds.push(session.id);
