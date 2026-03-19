@@ -7,12 +7,14 @@ import sessionManager from "./sessionManager.js";
 import teamManager from "./teamManager.js";
 import stateStore from "./stateStore.js";
 import * as templateStore from "./templateStore.js";
+import messageQueue from "./messageQueue.js";
 import { BUILTIN_ROLES, EXTRA_ROLES } from "./promptBuilder.js";
 
 // Initialize persistence layer
 stateStore.load();
 templateStore.migrateFromLegacy();
 teamManager.restoreFromState();
+messageQueue.restoreFromState();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -135,6 +137,7 @@ app.get("/api/teams/:teamId", (req, res) => {
 app.delete("/api/teams/:teamId", (req, res) => {
   const destroyed = teamManager.destroy(req.params.teamId);
   if (!destroyed) return res.status(404).json({ error: "Team not found" });
+  messageQueue.clearTeam(req.params.teamId);
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "team-deleted" });
   res.json({ ok: true });
 });
@@ -199,6 +202,88 @@ app.delete("/api/teams/:teamId/agents/:agentId", (req, res) => {
   if (!removed) return res.status(404).json({ error: "Agent not found" });
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "agent-removed", agentId: req.params.agentId });
   res.json({ ok: true });
+});
+
+// Message Queue API (used by MCP tools)
+
+// Send a message: enqueue + PTY inject for instant delivery
+app.post("/api/messages/send", (req, res) => {
+  const { from, to, message, teamId } = req.body || {};
+  if (!to || !message) return res.status(400).json({ error: "to and message are required" });
+
+  const toSession = sessionManager.get(to);
+  if (!toSession) return res.status(404).json({ error: "Recipient agent not found" });
+
+  const fromName = from ? (sessionManager.get(from)?.name || from) : "unknown";
+  const toName = toSession.name || to;
+
+  const msg = messageQueue.enqueue(from || "unknown", to, message, { fromName, toName, teamId });
+
+  // Also inject into PTY for instant delivery (the original send_message behavior)
+  // Write text first, then send Enter after a delay so the CLI TUI can process the paste
+  const prefix = `\n📨 Message from ${fromName}:\n`;
+  toSession.injectInput(prefix + message);
+  setTimeout(() => {
+    toSession.injectInput("\r");
+  }, 300);
+
+  res.json({ ok: true, messageId: msg.id, toName });
+});
+
+// Check inbox: get unread messages for the calling agent
+app.get("/api/messages/inbox", (req, res) => {
+  const { agentId } = req.query;
+  if (!agentId) return res.json({ messages: [] });
+
+  const messages = messageQueue.getUnread(agentId);
+  res.json({
+    messages: messages.map((m) => ({
+      id: m.id,
+      from: m.from,
+      fromName: m.fromName,
+      content: m.content,
+      timestamp: m.timestamp,
+    })),
+  });
+});
+
+// Mark messages as read
+app.post("/api/messages/read", (req, res) => {
+  const { messageId, agentId } = req.body || {};
+  if (!messageId) return res.status(400).json({ error: "messageId is required" });
+
+  if (messageId === "all") {
+    if (!agentId) return res.status(400).json({ error: "agentId is required for mark-all" });
+    const count = messageQueue.markAllRead(agentId);
+    return res.json({ ok: true, message: `Marked ${count} message(s) as read` });
+  }
+
+  const success = messageQueue.markRead(messageId);
+  if (!success) return res.status(404).json({ error: "Message not found" });
+  res.json({ ok: true, message: `Message ${messageId} marked as read` });
+});
+
+// Get message history for a team (used by frontend)
+app.get("/api/teams/:teamId/messages", (req, res) => {
+  const messages = messageQueue.getTeamMessages(req.params.teamId);
+  res.json(messages);
+});
+
+// Broadcast new messages over WebSocket for real-time UI updates
+messageQueue.onMessage((msg) => {
+  broadcast({
+    type: "team-message",
+    teamId: msg.teamId,
+    message: {
+      id: msg.id,
+      from: msg.from,
+      to: msg.to,
+      fromName: msg.fromName,
+      toName: msg.toName,
+      content: msg.content,
+      timestamp: msg.timestamp,
+    },
+  });
 });
 
 // WebSocket

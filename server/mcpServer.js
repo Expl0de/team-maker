@@ -66,24 +66,80 @@ server.tool(
 
 server.tool(
   "send_message",
-  "Send a message directly to another agent (delivered instantly via PTY injection — primary communication channel)",
+  "Send a message to another agent. The message is queued server-side and also delivered instantly via PTY injection. The recipient can retrieve it later with check_inbox.",
   {
     agentId: z.string().describe("The session ID of the agent to message"),
     message: z.string().describe("The text to send to the agent"),
+    fromAgentId: z.string().optional().describe("Your own session ID (for message tracking). Use list_agents to find it if needed."),
   },
-  async ({ agentId, message }) => {
+  async ({ agentId, message, fromAgentId }) => {
     try {
-      const res = await fetch(`${BASE_URL}/api/sessions/${agentId}/input`, {
+      const res = await fetch(`${BASE_URL}/api/messages/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: message }),
+        body: JSON.stringify({ from: fromAgentId || "unknown", to: agentId, message, teamId: TEAM_ID }),
       });
       const data = await res.json();
       if (!res.ok) {
         return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
       }
       return {
-        content: [{ type: "text", text: `Message sent to agent ${agentId}` }],
+        content: [{ type: "text", text: `Message sent to ${data.toName || agentId} (queued as ${data.messageId})` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "check_inbox",
+  "Check your inbox for unread messages from other agents. Returns only unread messages with their IDs. Use mark_read to acknowledge messages after processing them.",
+  {
+    agentId: z.string().describe("Your own session ID. Use list_agents to find it if needed."),
+  },
+  async ({ agentId }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/messages/inbox?agentId=${encodeURIComponent(agentId)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      if (data.messages.length === 0) {
+        return { content: [{ type: "text", text: "No unread messages." }] };
+      }
+      const formatted = data.messages.map((m) =>
+        `[${m.id}] From ${m.fromName} (${m.timestamp}):\n${m.content}`
+      ).join("\n\n---\n\n");
+      return {
+        content: [{ type: "text", text: `${data.messages.length} unread message(s):\n\n${formatted}` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "mark_read",
+  "Mark one or more messages as read after processing them. Pass a single message ID or 'all' to mark all unread messages as read.",
+  {
+    messageId: z.string().describe("The message ID to mark as read, or 'all' to mark all unread messages"),
+    agentId: z.string().optional().describe("Your own session ID (required when using 'all')"),
+  },
+  async ({ messageId, agentId }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/messages/read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId, agentId, teamId: TEAM_ID }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      return {
+        content: [{ type: "text", text: data.message }],
       };
     } catch (err) {
       return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };

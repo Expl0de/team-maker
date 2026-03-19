@@ -7,6 +7,10 @@ let activeSessionId = null;
 let usageTabActive = false;
 let usageRefreshInterval = null;
 
+// Messages tab state
+let messagesTabActive = false;
+const teamMessages = new Map(); // teamId -> message[]
+
 // Role editor state
 let currentRoles = [];
 let editingRoleIndex = -1;
@@ -366,21 +370,35 @@ function selectTeam(teamId) {
     usageTab.style.display = "none";
   }
 
+  // Show/hide messages tab
+  const messagesTab = tabBar.querySelector(".tab-messages");
+  if (teamId) {
+    if (!messagesTab) {
+      createMessagesTab();
+    } else {
+      messagesTab.style.display = "";
+    }
+  } else if (messagesTab) {
+    messagesTab.style.display = "none";
+  }
+
   // Show only tabs for this team, hide others
-  tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => {
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages)").forEach((t) => {
     const session = sessions.get(t.dataset.id);
     t.style.display = (session && session.teamId === teamId) ? "" : "none";
   });
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel)").forEach((w) => {
     const session = sessions.get(w.dataset.id);
     if (!session || session.teamId !== teamId) {
       w.classList.remove("active");
     }
   });
 
-  // If usage tab was active, keep it; otherwise switch to an agent tab
+  // If usage/messages tab was active, keep it; otherwise switch to an agent tab
   if (usageTabActive) {
     switchToUsageTab();
+  } else if (messagesTabActive) {
+    switchToMessagesTab();
   } else {
     // Switch to the first visible tab in this team, or the active one if it belongs
     const team = teams.get(teamId);
@@ -492,6 +510,11 @@ function attachSession(data) {
           handleTeamUpdate(msg);
           return;
         }
+        // Handle team message broadcasts
+        if (msg.type === "team-message") {
+          handleTeamMessage(msg);
+          return;
+        }
       } catch {
         // Not JSON — terminal data
       }
@@ -555,6 +578,10 @@ function reconnect(sessionId) {
           handleTeamUpdate(msg);
           return;
         }
+        if (msg.type === "team-message") {
+          handleTeamMessage(msg);
+          return;
+        }
         if (msg.type === "attached" || msg.type === "error") return;
       } catch {}
     }
@@ -577,6 +604,7 @@ function reconnect(sessionId) {
 function switchTab(sessionId) {
   activeSessionId = sessionId;
   usageTabActive = false;
+  messagesTabActive = false;
 
   // Deactivate usage tab and panel
   const usageTab = tabBar.querySelector(".tab-usage");
@@ -584,11 +612,16 @@ function switchTab(sessionId) {
   document.getElementById("usage-panel").classList.remove("active");
   stopUsageAutoRefresh();
 
-  tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => {
+  // Deactivate messages tab and panel
+  const messagesTab = tabBar.querySelector(".tab-messages");
+  if (messagesTab) messagesTab.classList.remove("active");
+  document.getElementById("messages-panel").classList.remove("active");
+
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages)").forEach((t) => {
     t.classList.toggle("active", t.dataset.id === sessionId);
   });
 
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel)").forEach((w) => {
     w.classList.toggle("active", w.dataset.id === sessionId);
   });
 
@@ -624,9 +657,10 @@ function createUsageTab() {
 
 function switchToUsageTab() {
   usageTabActive = true;
+  messagesTabActive = false;
   activeSessionId = null;
 
-  // Deactivate all agent tabs and wrappers
+  // Deactivate all agent tabs, messages tab, and wrappers
   tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => t.classList.remove("active"));
   terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => w.classList.remove("active"));
 
@@ -639,6 +673,154 @@ function switchToUsageTab() {
   // Fetch and render usage data
   refreshUsagePanel();
   startUsageAutoRefresh();
+}
+
+// --- Messages tab ---
+
+function createMessagesTab() {
+  const existing = tabBar.querySelector(".tab-messages");
+  if (existing) existing.remove();
+
+  const tab = document.createElement("div");
+  tab.className = "tab tab-messages";
+  tab.innerHTML = `<span class="messages-tab-icon">💬</span><span class="tab-name">Messages</span>`;
+  tab.addEventListener("click", () => switchToMessagesTab());
+
+  // Insert after usage tab
+  const usageTab = tabBar.querySelector(".tab-usage");
+  if (usageTab) {
+    usageTab.after(tab);
+  } else {
+    tabBar.prepend(tab);
+  }
+  return tab;
+}
+
+function switchToMessagesTab() {
+  messagesTabActive = true;
+  usageTabActive = false;
+  activeSessionId = null;
+
+  // Deactivate all other tabs and wrappers
+  tabBar.querySelectorAll(".tab:not(.tab-messages)").forEach((t) => t.classList.remove("active"));
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#messages-panel)").forEach((w) => w.classList.remove("active"));
+  stopUsageAutoRefresh();
+
+  // Activate messages tab and panel
+  const messagesTab = tabBar.querySelector(".tab-messages");
+  if (messagesTab) messagesTab.classList.add("active");
+  document.getElementById("messages-panel").classList.add("active");
+  emptyState.style.display = "none";
+
+  // Clear unread badge
+  updateMessagesUnreadBadge(0);
+
+  // Load messages if not already loaded
+  if (activeTeamId) {
+    loadTeamMessages(activeTeamId);
+  }
+}
+
+async function loadTeamMessages(teamId) {
+  try {
+    const res = await fetch(`/api/teams/${teamId}/messages`);
+    const messages = await res.json();
+    teamMessages.set(teamId, messages);
+    renderMessagesPanel(messages);
+  } catch {
+    renderMessagesPanel([]);
+  }
+}
+
+function renderMessagesPanel(messages) {
+  const panel = document.getElementById("messages-panel-content");
+  if (!messages || messages.length === 0) {
+    panel.innerHTML = '<div class="messages-empty">No messages yet</div>';
+    return;
+  }
+
+  panel.innerHTML = messages.map((m) => renderMessageItem(m)).join("");
+  // Auto-scroll to bottom
+  const messagesPanel = document.getElementById("messages-panel");
+  messagesPanel.scrollTop = messagesPanel.scrollHeight;
+}
+
+function renderMessageItem(msg, isNew) {
+  const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const contentEscaped = msg.content
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const truncated = contentEscaped.length > 500 ? contentEscaped.slice(0, 500) + "..." : contentEscaped;
+
+  return `<div class="msg-item${isNew ? " msg-new" : ""}">
+    <div class="msg-arrow">
+      <span class="msg-agent-name">${escapeHtml(msg.fromName || msg.from)}</span>
+      <span class="msg-direction">→</span>
+      <span class="msg-agent-name msg-to">${escapeHtml(msg.toName || msg.to)}</span>
+    </div>
+    <div class="msg-body">
+      <div class="msg-content">${truncated}</div>
+      <div class="msg-time">${time}</div>
+    </div>
+  </div>`;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function handleTeamMessage(msg) {
+  const teamId = msg.teamId;
+
+  // Store message
+  if (!teamMessages.has(teamId)) {
+    teamMessages.set(teamId, []);
+  }
+  teamMessages.get(teamId).push(msg.message);
+
+  // If messages panel is active and showing this team, append it
+  if (messagesTabActive && activeTeamId === teamId) {
+    const panel = document.getElementById("messages-panel-content");
+    const isEmpty = panel.querySelector(".messages-empty");
+    if (isEmpty) panel.innerHTML = "";
+    panel.insertAdjacentHTML("beforeend", renderMessageItem(msg.message, true));
+    // Auto-scroll
+    const messagesPanel = document.getElementById("messages-panel");
+    messagesPanel.scrollTop = messagesPanel.scrollHeight;
+  } else if (activeTeamId === teamId && !messagesTabActive) {
+    // Show unread count on tab
+    const tab = tabBar.querySelector(".tab-messages");
+    if (tab) {
+      let badge = tab.querySelector(".unread-badge");
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "unread-badge";
+        tab.appendChild(badge);
+      }
+      // Count messages since last view (simple: just increment)
+      const current = parseInt(badge.textContent || "0", 10);
+      badge.textContent = current + 1;
+    }
+  }
+}
+
+function updateMessagesUnreadBadge(count) {
+  const tab = tabBar.querySelector(".tab-messages");
+  if (!tab) return;
+  const badge = tab.querySelector(".unread-badge");
+  if (count <= 0) {
+    if (badge) badge.remove();
+  } else {
+    if (badge) {
+      badge.textContent = count;
+    } else {
+      const b = document.createElement("span");
+      b.className = "unread-badge";
+      b.textContent = count;
+      tab.appendChild(b);
+    }
+  }
 }
 
 function startUsageAutoRefresh() {
@@ -786,6 +968,7 @@ function handleTeamUpdate(msg) {
           }
         }
         teams.delete(msg.teamId);
+        teamMessages.delete(msg.teamId);
         const el = teamList.querySelector(`[data-team-id="${msg.teamId}"]`);
         if (el) el.remove();
 

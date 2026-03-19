@@ -89,18 +89,9 @@ Everything is in-memory. When the server stops, all teams, sessions, message his
 
 ---
 
-## Anti-Pattern 2: File-Based Message Passing
+## Anti-Pattern 2: File-Based Message Passing ✅ FIXED
 
-### Where
-- `server/promptBuilder.js` — defines the file protocol in orchestrator prompt
-- Agents read/write `.team-maker/<sessionId>/AGENT_COMMUNICATE.md` and `MULTI_AGENT_PLAN.md`
-
-### Why It's an Anti-Pattern
-- **No atomicity**: Two agents can write to `MULTI_AGENT_PLAN.md` simultaneously. The last write wins, silently dropping the other agent's update. There's no file locking mechanism.
-- **No delivery guarantee**: Agent A appends a message to Agent B's `AGENT_COMMUNICATE.md`. There's no acknowledgment. Agent A doesn't know if B read it, processed it, or even exists anymore.
-- **Full re-read on every check**: Agents must re-read the entire communication file each wake cycle to find new messages. As the conversation grows, this consumes more tokens linearly. A 50-message conversation file uses ~2000 tokens just to re-read.
-- **No message ordering or deduplication**: Messages are appended as markdown text. If an agent crashes and restarts, it has no way to know which messages it already processed.
-- **Context window pollution**: Long communication files compete with the agent's actual task context for space in the context window.
+### Status: Completed
 
 ### Chosen: Option A — Structured message queue (server-side)
 
@@ -110,28 +101,45 @@ Everything is in-memory. When the server stops, all teams, sessions, message his
 - Delivery confirmation (agents know if messages were received)
 - Foundation for the task board (Anti-Pattern 4)
 
-### Implementation Plan
-1. **`server/messageQueue.js`** — New `MessageQueue` class
-   - In-memory message store per agent (Map of agentId → message array)
-   - Each message: `{ id, from, to, content, timestamp, read: false }`
-   - Methods: `enqueue(from, to, content)`, `getUnread(agentId)`, `markRead(agentId, messageId)`, `getHistory(agentId)`
-   - Broadcast message events over WebSocket for UI message log
-2. **`server/mcpServer.js`** — New MCP tools
-   - `check_inbox()` — returns only unread messages with IDs, replaces file-based inbox reads
-   - `mark_read(messageId)` — acknowledges receipt, enables delivery tracking
-   - Update `send_message` — route through MessageQueue instead of direct PTY injection, queue enqueue + PTY notify
-3. **`server/promptBuilder.js`** — Update agent prompts
-   - Remove file-based communication instructions (AGENT_COMMUNICATE.md references)
-   - Replace with MCP-based messaging instructions: "Use `check_inbox()` to read messages, `send_message()` to send, `mark_read()` to acknowledge"
-   - Keep `MULTI_AGENT_PLAN.md` for now (replaced in Anti-Pattern 4 with task board)
-4. **Frontend** — Add message log panel
-   - New WebSocket event type for messages (`{type: "message", from, to, content, timestamp}`)
-   - Display message flow in UI alongside terminals (visual communication trace)
+### What Was Implemented
+1. **`server/messageQueue.js`** — `MessageQueue` class with in-memory + StateStore persistence
+   - Per-agent message queues indexed by recipient
+   - Each message: `{ id, from, to, fromName, toName, teamId, content, timestamp, read }`
+   - Methods: `enqueue()`, `getUnread()`, `markRead()`, `markAllRead()`, `getHistory()`, `getTeamMessages()`, `clearTeam()`
+   - Event listeners for WebSocket broadcast on new messages
+   - Restored from `~/.team-maker/state.json` on startup
+
+2. **`server/mcpServer.js`** — New MCP tools added
+   - `check_inbox(agentId)` — returns only unread messages with IDs
+   - `mark_read(messageId, agentId?)` — acknowledges receipt, supports `"all"` to mark all read
+   - `send_message` updated — routes through `/api/messages/send` which enqueues + PTY injects
+   - Agents pass their own session ID (discoverable via `list_agents()`)
+
+3. **`server/index.js`** — New API endpoints
+   - `POST /api/messages/send` — enqueue message + PTY inject for instant delivery
+   - `GET /api/messages/inbox?agentId=` — get unread messages for an agent
+   - `POST /api/messages/read` — mark messages as read
+   - `GET /api/teams/:teamId/messages` — get full message history for a team
+   - WebSocket broadcast of `team-message` events on every new message
+   - Team deletion cleans up associated messages
+
+4. **`server/promptBuilder.js`** — Agent prompts updated
+   - Removed all `AGENT_COMMUNICATE.md` file references and directory creation
+   - Added `check_inbox`, `mark_read`, `fromAgentId` to MCP tools documentation
+   - Sub-agent prompt includes instructions to discover own session ID via `list_agents()`
+   - Kept `MULTI_AGENT_PLAN.md` (replaced in AP4 with task board)
+
+5. **Frontend** — Messages tab added
+   - "Messages" tab in tab bar (alongside Usage tab) with unread badge
+   - Messages panel showing chronological message flow with sender→recipient, content, timestamp
+   - Real-time updates via `team-message` WebSocket events with fade-in animation
+   - Auto-scroll to latest message, per-team message history loaded from API
 
 ### Impact
-- Eliminates race conditions and lost messages
+- Eliminates race conditions and lost messages from file-based communication
 - Reduces per-cycle token usage by 50-80% (no full file re-reads)
-- Enables delivery confirmation
+- Enables delivery confirmation via `mark_read`
+- Visual message flow trace in the UI for debugging agent coordination
 - **Prerequisite for:** Anti-Pattern 4 (task board builds on this messaging infrastructure)
 
 ---
@@ -394,8 +402,8 @@ For balance, these patterns are good and worth preserving:
 |----------|------|---------------|--------|---------|--------|
 | ~~1~~ | ~~AP1: Wake Loop~~ | ~~C: Remove + health-check~~ | ~~Low~~ | ~~60-80% token savings~~ | ✅ Done |
 | ~~1.5~~ | ~~Persistence Layer~~ | ~~JSON file store (`~/.team-maker/state.json`)~~ | ~~Low~~ | ~~State survives restarts, foundation for AP2+AP4~~ | ✅ Done |
-| **2** | **AP2: File Messaging** | **A: Server-side message queue** | Medium | Reliable comms, message history, delivery tracking | 🔜 Next |
-| **3** | **AP4: No Task State** | **A: Server-side task board** | Medium | Flow control, visualization, dependency tracking | Blocked by 2 |
+| ~~2~~ | ~~AP2: File Messaging~~ | ~~A: Server-side message queue~~ | ~~Medium~~ | ~~Reliable comms, message history, delivery tracking~~ | ✅ Done |
+| **3** | **AP4: No Task State** | **A: Server-side task board** | Medium | Flow control, visualization, dependency tracking | 🔜 Next |
 | **4** | **AP3: PTY Control Plane** | **C: Hybrid (PTY display + JSONL control)** | Medium | Structured events, resilience, keeps free subscription | Planned |
 | **5a** | **AP5-A: Lazy Spawning** | **On-demand spawn + idle timeout** | Low | 20-40% idle token savings | Planned |
 | **5b** | **AP5-B: Shared Context** | **In-memory store → LangChain vector DB** | Medium | 30-50% duplicate read savings, LangChain foundation | Planned |
@@ -403,7 +411,7 @@ For balance, these patterns are good and worth preserving:
 
 ### Dependency chain
 ```
-AP1 (done) → Persistence Layer (done) → AP2 (message queue) → AP4 (task board) → AP5-C (smart model routing)
+AP1 (done) → Persistence Layer (done) → AP2 (done) → AP4 (task board) → AP5-C (smart model routing)
                                                ↓                     ↓
                                           AP5-A (lazy spawn)    AP5-B (shared context → LangChain)
                                           (can start anytime)
@@ -411,7 +419,7 @@ AP1 (done) → Persistence Layer (done) → AP2 (message queue) → AP4 (task bo
                                        AP3 (hybrid JSONL) — independent, can parallel with AP4
 ```
 - ~~**Persistence Layer** is the prerequisite — AP2 and AP4 need somewhere to store messages and tasks~~ ✅ Done
-- AP2 (message queue) is foundational — AP4 (task board) builds on its infrastructure
+- ~~AP2 (message queue) is foundational — AP4 (task board) builds on its infrastructure~~ ✅ Done
 - AP3 (hybrid JSONL) is independent and can be done in parallel with AP4
 - AP5-A (lazy spawning) has no hard dependencies — can be done anytime after AP1
 - AP5-B (shared context) uses the persistence layer, best done after AP4 so agents have tasks to contextualize

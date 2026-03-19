@@ -27,11 +27,6 @@ export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, 
 - **Focus**: ${role.responsibility}`;
   }).join("\n\n");
 
-  const agentDirs = roles.map((_, i) => {
-    const num = i + 1;
-    return `├── agent-${num}/\n│   └── AGENT_COMMUNICATE.md`;
-  }).join("\n");
-
   const templateRoleBlocks = roles.map((role, i) => {
     const num = i + 1;
     return `**Agent ${num} (${role.title}): ${role.responsibility}**
@@ -50,13 +45,17 @@ You are **Agent 0 — The Orchestrator** for team "${teamName}". You manage the 
 
 > **Role Acknowledgment**: "I am Agent 0 - The Orchestrator responsible for Team Management & User Communication"
 
+Your session ID is: \`${orchestratorSessionId}\`
+
 ---
 
 ## MCP Tools Available
 You have these MCP tools to manage your team:
 - \`spawn_agent(name, prompt)\` — spawn a new agent in your team
-- \`list_agents()\` — list all agents in your team
-- \`send_message(agentId, message)\` — send a message directly to another agent (delivered instantly via PTY injection — this is the primary communication channel)
+- \`list_agents()\` — list all agents with their session IDs and status
+- \`send_message(agentId, message, fromAgentId?)\` — send a message to another agent (queued + delivered instantly). Pass your own session ID as \`fromAgentId\` for tracking.
+- \`check_inbox(agentId)\` — check your inbox for unread messages. Pass your own session ID.
+- \`mark_read(messageId, agentId?)\` — mark a message as read after processing. Use \`messageId="all"\` with your agentId to mark all read.
 
 ---
 
@@ -72,9 +71,6 @@ Create the following directory structure:
 │   └── multi-agent-template.md
 ├── share/
 │   └── MULTI_AGENT_PLAN.md
-├── agent-0/
-│   └── AGENT_COMMUNICATE.md
-${agentDirs}
 \`\`\`
 
 ---
@@ -116,30 +112,7 @@ Initialize with this structure (adapt tasks based on the actual project):
 
 ---
 
-## Step 4: Initialize Each Agent's \`AGENT_COMMUNICATE.md\`
-
-For each agent folder \`.team-maker/${sessionId}/agent-N/AGENT_COMMUNICATE.md\`, write:
-\`\`\`markdown
-# Agent N (<Role Name>) — Communication Inbox
-
-> This file is the direct message inbox for Agent N.
-> Any agent or orchestrator may append a message here to assign tasks or request coordination.
-> Messages are also delivered instantly via send_message — check this file for message history.
-
-## Message Format
-# <Sender> → <Recipient>
-
-<Message body>
-
-— <Sender> (HH:MM)
-
----
-<!-- Messages will be appended below this line -->
-\`\`\`
-
----
-
-## Step 5: Spawn Sub-Agents
+## Step 4: Spawn Sub-Agents
 
 Use the \`spawn_agent\` MCP tool to create each agent. Spawn all ${agentCount} agents immediately:
 ${spawnInstructions}
@@ -155,30 +128,36 @@ You are **Agent <N> — The <Role>**.
 
 ## Session
 - Session ID: \`${sessionId}\`
-- Your folder: \`.team-maker/${sessionId}/agent-<N>/\`
 - Shared plan: \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\`
-- Your inbox: \`.team-maker/${sessionId}/agent-<N>/AGENT_COMMUNICATE.md\`
 
 ## Important: Agent 0 (Orchestrator) Session ID
 Agent 0's session ID is: \`${orchestratorSessionId}\`
-Use this ID with \`send_message\` to report back to the orchestrator. You can also use \`list_agents\` to discover other agents' IDs.
+Use this ID with \`send_message\` to report back to the orchestrator.
+
+## Discovering Your Own Session ID
+Use \`list_agents()\` to see all agents and find your own session ID. You need this for \`check_inbox\` and \`fromAgentId\` in \`send_message\`.
+
+## MCP Communication Tools
+- \`send_message(agentId, message, fromAgentId?)\` — send a message to another agent. Always pass your own session ID as \`fromAgentId\`.
+- \`check_inbox(agentId)\` — check for unread messages. Pass your own session ID.
+- \`mark_read(messageId)\` — mark a message as read after processing it.
+- \`list_agents()\` — discover all agents and their session IDs.
 
 ## How You Receive Work
-Messages from the orchestrator and other agents are delivered directly to your terminal via \`send_message\`. You do NOT need to poll or check files on a timer — messages arrive instantly.
+Messages from the orchestrator and other agents are delivered directly to your terminal via \`send_message\`. You do NOT need to poll — messages arrive instantly.
 
 When you receive a message:
 1. Execute the required work
 2. Update \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\` with your progress
 3. Create any needed files inside \`.team-maker/${sessionId}/share/\` for cross-agent access
-4. **ALWAYS use \`send_message\` to notify the sender when done** — this is MANDATORY. The sender is waiting for your reply and cannot see file changes. You MUST send a message back with \`send_message(agentId="${orchestratorSessionId}", message="...")\` summarizing what you did and where to find the results.
+4. **ALWAYS use \`send_message\` to notify the sender when done** — this is MANDATORY. The sender is waiting for your reply. You MUST send a message back with \`send_message(agentId="${orchestratorSessionId}", message="...")\` summarizing what you did and where to find the results.
 
 When you finish all assigned tasks, use \`send_message(agentId="${orchestratorSessionId}", message="...")\` to report completion to Agent 0, then stop.
 
 ## Communication Rules
-- To message another agent: append to \`.team-maker/${sessionId}/agent-<N>/AGENT_COMMUNICATE.md\`
+- All messaging goes through MCP tools (\`send_message\`, \`check_inbox\`, \`mark_read\`)
 - To update task status: edit \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\`
 - You may create additional files inside \`.team-maker/${sessionId}/share/\` (diagrams, specs, outputs, etc.)
-- Always timestamp and sign your messages: — <Role> (HH:MM)
 
 ## Role-Specific Details
 <Paste the relevant agent block from multi-agent-template.md>
@@ -192,7 +171,7 @@ After spawning all agents and assigning initial tasks via \`send_message\`:
 
 1. **WAIT for responses**: After assigning a task, WAIT for the agent to reply via \`send_message\` before doing anything related to that task. Do NOT proceed, build, or implement anything you have delegated. You are the orchestrator — you coordinate, you do NOT build.
 2. **You do NOT write code or create artifacts**: Your job is to break down work, assign it to agents, and coordinate. If something needs to be built, designed, or implemented — assign it to the appropriate agent. Never do it yourself.
-3. **React to incoming messages**: Sub-agents will message you via \`send_message\`. Process these as they arrive.
+3. **React to incoming messages**: Sub-agents will message you via \`send_message\`. Process these as they arrive. You can also use \`check_inbox(agentId="${orchestratorSessionId}")\` to check for any missed messages.
 4. **Coordinate work**: Use \`send_message\` to assign tasks, unblock agents, and relay information between agents.
 5. **Keep MULTI_AGENT_PLAN.md current**: Update task statuses as agents report progress.
 6. **Communicate with the user**: You are the only agent that talks to the user directly. Relay relevant updates.
@@ -216,6 +195,5 @@ Break this down into specific tasks, assign them to the appropriate agents based
 |---|---|
 | Team template | \`.team-maker/${sessionId}/memory/multi-agent-template.md\` |
 | Shared plan | \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\` |
-| Agent N inbox | \`.team-maker/${sessionId}/agent-N/AGENT_COMMUNICATE.md\` |
 | Shared artifacts | \`.team-maker/${sessionId}/share/<any-file>\` |`;
 }

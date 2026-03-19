@@ -95,6 +95,20 @@ class TeamManager {
     stateStore.delete(`teams.${teamId}`);
   }
 
+  _ensureMcpConfig(teamId, mcpConfigPath) {
+    const port = process.env.PORT || 3456;
+    const mcpConfig = {
+      mcpServers: {
+        "team-maker": {
+          command: "node",
+          args: [MCP_SERVER_PATH],
+          env: { TEAM_ID: teamId, TEAM_MAKER_PORT: String(port) },
+        },
+      },
+    };
+    writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+  }
+
   create({ name, cwd, prompt, roles, model }) {
     const id = uuidv4();
 
@@ -118,17 +132,7 @@ class TeamManager {
 
     // Write MCP config for this team
     const mcpConfigPath = `/tmp/team-maker-mcp-${id}.json`;
-    const port = process.env.PORT || 3456;
-    const mcpConfig = {
-      mcpServers: {
-        "team-maker": {
-          command: "node",
-          args: [MCP_SERVER_PATH],
-          env: { TEAM_ID: id, TEAM_MAKER_PORT: String(port) },
-        },
-      },
-    };
-    writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+    this._ensureMcpConfig(id, mcpConfigPath);
 
     // Determine model for main agent: first role's model > team default
     const mainModel = (teamRoles[0] && teamRoles[0].model) || model || null;
@@ -182,6 +186,10 @@ class TeamManager {
     // Use provided model, fall back to team-level default
     const agentModel = model || team.model || null;
 
+    // Ensure MCP config exists for this team so sub-agents have messaging tools
+    const mcpConfigPath = `/tmp/team-maker-mcp-${teamId}.json`;
+    this._ensureMcpConfig(teamId, mcpConfigPath);
+
     team.agentCounter++;
     const session = sessionManager.create({
       name,
@@ -191,6 +199,7 @@ class TeamManager {
       teamId,
       role: "agent",
       agentIndex: team.agentCounter,
+      mcpConfigPath,
       model: agentModel,
     });
 
@@ -233,17 +242,7 @@ class TeamManager {
 
     // Write MCP config for this team
     const mcpConfigPath = `/tmp/team-maker-mcp-${teamId}.json`;
-    const port = process.env.PORT || 3456;
-    const mcpConfig = {
-      mcpServers: {
-        "team-maker": {
-          command: "node",
-          args: [MCP_SERVER_PATH],
-          env: { TEAM_ID: teamId, TEAM_MAKER_PORT: String(port) },
-        },
-      },
-    };
-    writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+    this._ensureMcpConfig(teamId, mcpConfigPath);
 
     const mainModel = (team.roles[0] && team.roles[0].model) || team.model || null;
 
