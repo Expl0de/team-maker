@@ -66,7 +66,7 @@ server.tool(
 
 server.tool(
   "send_message",
-  "Send input text to another agent in your team",
+  "Send a message directly to another agent (delivered instantly via PTY injection — primary communication channel)",
   {
     agentId: z.string().describe("The session ID of the agent to message"),
     message: z.string().describe("The text to send to the agent"),

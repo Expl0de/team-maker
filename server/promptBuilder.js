@@ -17,7 +17,7 @@ export const EXTRA_ROLES = [
 /**
  * Build the full orchestrator prompt for Agent 0.
  */
-export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, roles, wakeInterval = 60 }) {
+export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, roles }) {
   const agentCount = roles.length;
   const roleBlocks = roles.map((role, i) => {
     const num = i + 1;
@@ -56,7 +56,7 @@ You are **Agent 0 — The Orchestrator** for team "${teamName}". You manage the 
 You have these MCP tools to manage your team:
 - \`spawn_agent(name, prompt)\` — spawn a new agent in your team
 - \`list_agents()\` — list all agents in your team
-- \`send_message(agentId, message)\` — send urgent PTY-level input to another agent (use sparingly; prefer file-based communication)
+- \`send_message(agentId, message)\` — send a message directly to another agent (delivered instantly via PTY injection — this is the primary communication channel)
 
 ---
 
@@ -102,7 +102,7 @@ ${templateRoleBlocks}
 Initialize with this structure (adapt tasks based on the actual project):
 \`\`\`markdown
 # Multi-Agent Plan — Session: ${sessionId}
-> All agents must read this file at every wake cycle. Update your task status here whenever work progresses.
+> All agents should update their task status here whenever work progresses.
 
 ---
 
@@ -124,7 +124,7 @@ For each agent folder \`.team-maker/${sessionId}/agent-N/AGENT_COMMUNICATE.md\`,
 
 > This file is the direct message inbox for Agent N.
 > Any agent or orchestrator may append a message here to assign tasks or request coordination.
-> Agent N checks this file every ${wakeInterval} seconds during active sessions.
+> Messages are also delivered instantly via send_message — check this file for message history.
 
 ## Message Format
 # <Sender> → <Recipient>
@@ -159,17 +159,16 @@ You are **Agent <N> — The <Role>**.
 - Shared plan: \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\`
 - Your inbox: \`.team-maker/${sessionId}/agent-<N>/AGENT_COMMUNICATE.md\`
 
-## Wake Loop (every ${wakeInterval} seconds)
-Repeat indefinitely:
-1. Read \`.team-maker/${sessionId}/agent-<N>/AGENT_COMMUNICATE.md\`
-2. Read \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\`
-3. If there is a new message or task assigned to you:
-   - Execute the required work
-   - Update MULTI_AGENT_PLAN.md with your progress
-   - Write a reply or status update back to the sender's AGENT_COMMUNICATE.md
-   - Create any needed files inside \`.team-maker/${sessionId}/share/\` for cross-agent access
-4. If nothing to do: wait for the next wake nudge.
-5. IMPORTANT: Once all your tasks are marked "Done" and you have reported completion to Agent 0, stop polling. Do not keep sending status messages after completing all work.
+## How You Receive Work
+Messages from the orchestrator and other agents are delivered directly to your terminal via \`send_message\`. You do NOT need to poll or check files on a timer — messages arrive instantly.
+
+When you receive a message:
+1. Execute the required work
+2. Update \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\` with your progress
+3. Create any needed files inside \`.team-maker/${sessionId}/share/\` for cross-agent access
+4. **ALWAYS use \`send_message\` to notify the sender when done** — this is MANDATORY. The sender is waiting for your reply and cannot see file changes. You MUST send a message back summarizing what you did and where to find the results.
+
+When you finish all assigned tasks, use \`send_message\` to report completion to Agent 0, then stop.
 
 ## Communication Rules
 - To message another agent: append to \`.team-maker/${sessionId}/agent-<N>/AGENT_COMMUNICATE.md\`
@@ -185,19 +184,17 @@ Repeat indefinitely:
 
 ## Agent 0 Ongoing Responsibilities
 
-After spawning all agents, enter your own wake loop:
+After spawning all agents and assigning initial tasks via \`send_message\`:
 
-1. **Every ${wakeInterval} seconds**:
-   - Read \`.team-maker/${sessionId}/agent-0/AGENT_COMMUNICATE.md\` for messages from sub-agents
-   - Read \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\` for overall status
-   - Relay relevant updates to the user if actionable
-   - If user gives new instructions: break down into tasks, update MULTI_AGENT_PLAN.md, and write to the appropriate agent's AGENT_COMMUNICATE.md
-
-2. **Always**:
-   - Keep MULTI_AGENT_PLAN.md current
-   - Be the only agent that communicates directly with the user
-   - Resolve blockers by reassigning or escalating
-   - Once all tasks are "Done", report final status to the user and stop polling
+1. **WAIT for responses**: After assigning a task, WAIT for the agent to reply via \`send_message\` before doing anything related to that task. Do NOT proceed, build, or implement anything you have delegated. You are the orchestrator — you coordinate, you do NOT build.
+2. **You do NOT write code or create artifacts**: Your job is to break down work, assign it to agents, and coordinate. If something needs to be built, designed, or implemented — assign it to the appropriate agent. Never do it yourself.
+3. **React to incoming messages**: Sub-agents will message you via \`send_message\`. Process these as they arrive.
+4. **Coordinate work**: Use \`send_message\` to assign tasks, unblock agents, and relay information between agents.
+5. **Keep MULTI_AGENT_PLAN.md current**: Update task statuses as agents report progress.
+6. **Communicate with the user**: You are the only agent that talks to the user directly. Relay relevant updates.
+7. **If user gives new instructions**: Break down into tasks, update MULTI_AGENT_PLAN.md, and use \`send_message\` to assign work.
+8. **Resolve blockers** by reassigning or escalating.
+9. **Once all tasks are "Done"**, report final status to the user.
 
 ---
 

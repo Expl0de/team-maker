@@ -90,7 +90,7 @@ const QUESTION_PATTERNS = [
 ];
 
 class Session {
-  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval, model }) {
+  constructor({ id, name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, model }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
@@ -108,8 +108,7 @@ class Session {
     this._lastQuestionAlert = 0; // debounce timestamp
     this._plainBuffer = ""; // rolling buffer of stripped text for pattern matching
     this._lastOutputTime = Date.now(); // track last PTY output for idle detection
-    this._wakeIntervalMs = (wakeInterval || 60) * 1000; // configurable wake interval
-    this._wakeInterval = null; // server-side wake-up timer for agents
+    this._healthCheckInterval = null; // rare health-check ping for stuck agents
     this._active = false; // whether the session is actively producing output
     this._activityTimer = null; // timer to detect when output stops
 
@@ -143,9 +142,9 @@ class Session {
       this._injectPrompt(initialPrompt);
     }
 
-    // Start server-side wake-up interval for team agents
+    // Start health-check ping for team agents (rare, only for stuck detection)
     if (teamId) {
-      this._startWakeLoop();
+      this._startHealthCheck();
     }
 
     this.pty.onData((data) => {
@@ -279,30 +278,32 @@ class Session {
     }
   }
 
-  _startWakeLoop() {
-    // Wait for initial prompt to finish before starting the wake loop
-    const startDelay = 30000; // 30s — give agent time to process initial prompt
+  _startHealthCheck() {
+    // Rare health-check ping (every 5 minutes) — only fires if agent is idle >4 minutes.
+    // This is a safety net for stuck agents, NOT a communication mechanism.
+    // Normal inter-agent messaging uses send_message (PTY injection) which is instant.
+    const HEALTH_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+    const IDLE_THRESHOLD = 4 * 60 * 1000; // 4 minutes
+    const startDelay = 60000; // 60s — give agent time to process initial prompt
     setTimeout(() => {
       if (this.status !== "running") return;
-      this._wakeInterval = setInterval(() => {
+      this._healthCheckInterval = setInterval(() => {
         if (this.status !== "running") {
-          clearInterval(this._wakeInterval);
-          this._wakeInterval = null;
+          clearInterval(this._healthCheckInterval);
+          this._healthCheckInterval = null;
           return;
         }
-        // Only nudge if agent has been idle (no output for half the wake interval)
-        const idleThreshold = this._wakeIntervalMs / 2;
         const idleMs = Date.now() - this._lastOutputTime;
-        if (idleMs > idleThreshold) {
-          const nudge = "Wake cycle: Check your inbox (AGENT_COMMUNICATE.md) and shared plan (MULTI_AGENT_PLAN.md) now. If you have pending tasks, work on them. If all your tasks are Done, you may stop polling.";
-          this.pty.write(nudge);
+        if (idleMs > IDLE_THRESHOLD) {
+          const ping = "Health check: If you have pending tasks, continue working. If you are waiting for input, say so.";
+          this.pty.write(ping);
           setTimeout(() => {
             if (this.status === "running") {
               this.pty.write("\r");
             }
           }, 500);
         }
-      }, this._wakeIntervalMs);
+      }, HEALTH_CHECK_INTERVAL);
     }, startDelay);
   }
 
@@ -335,9 +336,9 @@ class Session {
 
   kill() {
     if (this.status === "running") {
-      if (this._wakeInterval) {
-        clearInterval(this._wakeInterval);
-        this._wakeInterval = null;
+      if (this._healthCheckInterval) {
+        clearInterval(this._healthCheckInterval);
+        this._healthCheckInterval = null;
       }
       if (this._jsonlTimer) {
         clearInterval(this._jsonlTimer);
@@ -377,11 +378,11 @@ class SessionManager {
     this.instanceCounter = 0;
   }
 
-  create({ name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval, model } = {}) {
+  create({ name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, model } = {}) {
     const id = uuidv4();
     this.instanceCounter++;
     const sessionName = name || `Instance ${this.instanceCounter}`;
-    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, wakeInterval, model });
+    const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, model });
     this.sessions.set(id, session);
     return session;
   }

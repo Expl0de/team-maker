@@ -512,33 +512,6 @@ header h1 {
   margin-bottom: 6px;
 }
 
-.wake-interval-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.wake-interval-row input[type="number"] {
-  width: 80px;
-  background: #1e1e2e;
-  border: 1px solid #313244;
-  border-radius: 6px;
-  padding: 6px 10px;
-  color: #cdd6f4;
-  font-size: 13px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  outline: none;
-}
-
-.wake-interval-row input[type="number"]:focus {
-  border-color: #cba6f7;
-}
-
-.wake-interval-unit {
-  font-size: 12px;
-  color: #6c7086;
-}
 
 .template-picker-row {
   display: flex;

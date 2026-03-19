@@ -231,7 +231,6 @@ const agentModalCancel = document.getElementById("agent-modal-cancel");
 const agentModalStart = document.getElementById("agent-modal-start");
 
 // Role editor elements
-const wakeIntervalInput = document.getElementById("wake-interval-input");
 const templateSelect = document.getElementById("template-select");
 const templateSaveBtn = document.getElementById("template-save-btn");
 const templateDeleteBtn = document.getElementById("template-delete-btn");
@@ -953,7 +952,6 @@ function showNewTeamModal() {
   teamNameInput.value = "";
   pathInput.value = "";
   promptInput.value = "";
-  wakeIntervalInput.value = "60";
   modelSelect.value = "";
   // Init with default 4 roles
   currentRoles = builtinRoles.map((r) => ({ ...r }));
@@ -1002,7 +1000,6 @@ async function createNewTeam() {
   const cwd = pathInput.value.trim() || undefined;
   const prompt = promptInput.value.trim();
   const roles = currentRoles.length > 0 ? currentRoles : undefined;
-  const wakeInterval = parseInt(wakeIntervalInput.value, 10) || 60;
   const model = modelSelect.value || undefined;
 
   if (!name) { teamNameInput.focus(); return; }
@@ -1016,7 +1013,7 @@ async function createNewTeam() {
     const res = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, cwd, prompt, roles, wakeInterval, model }),
+      body: JSON.stringify({ name, cwd, prompt, roles, model }),
     });
     const data = await res.json();
 

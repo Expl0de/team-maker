@@ -109,9 +109,9 @@ app.get("/api/builtin-roles", (req, res) => {
 
 // Team API
 app.post("/api/teams", (req, res) => {
-  const { name, cwd, prompt, roles, wakeInterval, model } = req.body || {};
+  const { name, cwd, prompt, roles, model } = req.body || {};
   if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
-  const { team, session } = teamManager.create({ name, cwd, prompt, roles, wakeInterval, model });
+  const { team, session } = teamManager.create({ name, cwd, prompt, roles, model });
   broadcast({ type: "team-update", teamId: team.id, event: "team-created", team: team.toJSON(), agent: session.toJSON() });
   res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
 });

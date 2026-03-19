@@ -9,13 +9,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER_PATH = join(__dirname, "mcpServer.js");
 
 class Team {
-  constructor({ id, name, cwd, prompt, roles, wakeInterval, sessionId, model }) {
+  constructor({ id, name, cwd, prompt, roles, sessionId, model }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
     this.prompt = prompt;
     this.roles = roles;
-    this.wakeInterval = wakeInterval;
     this.sessionId = sessionId;
     this.model = model || null; // team-level default model
     this.mainAgentId = null;
@@ -31,7 +30,6 @@ class Team {
       cwd: this.cwd,
       prompt: this.prompt,
       roles: this.roles,
-      wakeInterval: this.wakeInterval,
       mainAgentId: this.mainAgentId,
       agentIds: this.agentIds,
       createdAt: this.createdAt.toISOString(),
@@ -44,7 +42,7 @@ class TeamManager {
     this.teams = new Map();
   }
 
-  create({ name, cwd, prompt, roles, wakeInterval = 60, model }) {
+  create({ name, cwd, prompt, roles, model }) {
     const id = uuidv4();
 
     // Use provided roles or default built-in roles
@@ -62,7 +60,7 @@ class TeamManager {
       String(now.getSeconds()).padStart(2, "0"),
     ].join("");
 
-    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, wakeInterval, sessionId, model });
+    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, sessionId, model });
     this.teams.set(id, team);
 
     // Write MCP config for this team
@@ -86,7 +84,6 @@ class TeamManager {
       cwd: cwd || process.env.HOME,
       taskPrompt: prompt,
       roles: teamRoles,
-      wakeInterval,
     });
 
     // Determine model for main agent: first role's model > team default
@@ -101,7 +98,6 @@ class TeamManager {
       teamId: id,
       role: "main",
       mcpConfigPath,
-      wakeInterval,
       model: mainModel,
     });
 
