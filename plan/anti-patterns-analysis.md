@@ -22,7 +22,9 @@ This document identifies architectural anti-patterns in Team Maker's multi-agent
 
 ---
 
-## Prerequisite: Persistence Layer — NEXT UP
+## Prerequisite: Persistence Layer ✅ DONE
+
+### Status: Completed
 
 ### Problem
 Everything is in-memory. When the server stops, all teams, sessions, message history, and task state are lost. Before building AP2 (message queue) and AP4 (task board), we need somewhere to persist their state — otherwise a server restart wipes all coordination history mid-task.
@@ -71,6 +73,14 @@ Everything is in-memory. When the server stops, all teams, sessions, message his
    - User can re-launch a team with its previous configuration
    - Message history and task board from previous runs are still visible in the UI
    - No attempt to auto-restart PTY processes (too fragile, user should decide)
+
+### What Was Implemented
+- **`server/stateStore.js`** — `StateStore` class persisting to `~/.team-maker/state.json` with debounced writes, corruption recovery with backup, and `get()`/`set()`/`delete()`/`onUpdate()` API
+- **`server/teamManager.js`** — Teams persist on create/delete, restored on startup as "stopped". Added `relaunch()` method to re-launch stopped teams
+- **`server/index.js`** — State loaded on startup, `POST /api/teams/:teamId/relaunch` endpoint, shutdown handler flushes state and marks teams stopped
+- **`server/templateStore.js`** — Migrated from `data/templates.json` to StateStore with one-time migration
+- **`server/sessionManager.js`** — Replaced fixed `setTimeout(5000)` prompt injection with event-driven `_waitForOutput()` that detects CLI readiness patterns
+- **Frontend** — Stopped teams show dimmed with "stopped" badge, relaunch button (↻), disabled "new agent" for stopped teams
 
 ### Impact
 - Teams and templates survive server restarts
@@ -383,8 +393,8 @@ For balance, these patterns are good and worth preserving:
 | Priority | Item | Chosen Option | Effort | Key Win | Status |
 |----------|------|---------------|--------|---------|--------|
 | ~~1~~ | ~~AP1: Wake Loop~~ | ~~C: Remove + health-check~~ | ~~Low~~ | ~~60-80% token savings~~ | ✅ Done |
-| **1.5** | **Persistence Layer** | **JSON file store (`~/.team-maker/state.json`)** | Low | State survives restarts, foundation for AP2+AP4 | 🔜 Next |
-| **2** | **AP2: File Messaging** | **A: Server-side message queue** | Medium | Reliable comms, message history, delivery tracking | Blocked by 1.5 |
+| ~~1.5~~ | ~~Persistence Layer~~ | ~~JSON file store (`~/.team-maker/state.json`)~~ | ~~Low~~ | ~~State survives restarts, foundation for AP2+AP4~~ | ✅ Done |
+| **2** | **AP2: File Messaging** | **A: Server-side message queue** | Medium | Reliable comms, message history, delivery tracking | 🔜 Next |
 | **3** | **AP4: No Task State** | **A: Server-side task board** | Medium | Flow control, visualization, dependency tracking | Blocked by 2 |
 | **4** | **AP3: PTY Control Plane** | **C: Hybrid (PTY display + JSONL control)** | Medium | Structured events, resilience, keeps free subscription | Planned |
 | **5a** | **AP5-A: Lazy Spawning** | **On-demand spawn + idle timeout** | Low | 20-40% idle token savings | Planned |
@@ -393,14 +403,14 @@ For balance, these patterns are good and worth preserving:
 
 ### Dependency chain
 ```
-AP1 (done) → Persistence Layer → AP2 (message queue) → AP4 (task board) → AP5-C (smart model routing)
-                                       ↓                     ↓
-                                  AP5-A (lazy spawn)    AP5-B (shared context → LangChain)
-                                  (can start anytime)
+AP1 (done) → Persistence Layer (done) → AP2 (message queue) → AP4 (task board) → AP5-C (smart model routing)
+                                               ↓                     ↓
+                                          AP5-A (lazy spawn)    AP5-B (shared context → LangChain)
+                                          (can start anytime)
 
-                               AP3 (hybrid JSONL) — independent, can parallel with AP4
+                                       AP3 (hybrid JSONL) — independent, can parallel with AP4
 ```
-- **Persistence Layer** is the prerequisite — AP2 and AP4 need somewhere to store messages and tasks
+- ~~**Persistence Layer** is the prerequisite — AP2 and AP4 need somewhere to store messages and tasks~~ ✅ Done
 - AP2 (message queue) is foundational — AP4 (task board) builds on its infrastructure
 - AP3 (hybrid JSONL) is independent and can be done in parallel with AP4
 - AP5-A (lazy spawning) has no hard dependencies — can be done anytime after AP1

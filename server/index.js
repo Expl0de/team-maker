@@ -5,8 +5,14 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import sessionManager from "./sessionManager.js";
 import teamManager from "./teamManager.js";
+import stateStore from "./stateStore.js";
 import * as templateStore from "./templateStore.js";
 import { BUILTIN_ROLES, EXTRA_ROLES } from "./promptBuilder.js";
+
+// Initialize persistence layer
+stateStore.load();
+templateStore.migrateFromLegacy();
+teamManager.restoreFromState();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -133,6 +139,14 @@ app.delete("/api/teams/:teamId", (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/teams/:teamId/relaunch", (req, res) => {
+  const result = teamManager.relaunch(req.params.teamId);
+  if (!result) return res.status(404).json({ error: "Team not found or already running" });
+  const { team, session } = result;
+  broadcast({ type: "team-update", teamId: team.id, event: "team-relaunched", team: team.toJSON(), agent: session.toJSON() });
+  res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
+});
+
 app.post("/api/teams/:teamId/agents", (req, res) => {
   const { name, prompt, model } = req.body || {};
   if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
@@ -249,3 +263,30 @@ const PORT = process.env.PORT || 3456;
 server.listen(PORT, () => {
   console.log(`Team Maker running at http://localhost:${PORT}`);
 });
+
+// Flush state to disk on shutdown so debounced writes aren't lost
+function onShutdown() {
+  console.log("[Server] Shutting down, flushing state...");
+  // Mark all running teams as stopped
+  for (const team of teamManager.list()) {
+    if (team.status === "running") {
+      const t = teamManager.get(team.id);
+      if (t) t.status = "stopped";
+      stateStore.set(`teams.${team.id}`, {
+        name: team.name,
+        cwd: team.cwd,
+        prompt: team.prompt,
+        roles: team.roles,
+        sessionId: team.sessionId,
+        model: team.model,
+        mainAgentId: team.mainAgentId,
+        agentCounter: t?.agentCounter || 0,
+        createdAt: team.createdAt,
+      });
+    }
+  }
+  stateStore.saveNow();
+  process.exit(0);
+}
+process.on("SIGINT", onShutdown);
+process.on("SIGTERM", onShutdown);

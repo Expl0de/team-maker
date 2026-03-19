@@ -7,6 +7,8 @@ import { homedir } from "os";
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
 const PLAIN_BUFFER_SIZE = 2048; // rolling buffer for pattern detection
 const JSONL_POLL_INTERVAL = 5000; // read JSONL logs every 5 seconds
+const PROMPT_INJECT_TIMEOUT = 15000; // fallback timeout if ready signal not detected
+const PROMPT_SETTLE_DELAY = 300; // delay between paste and Enter after ready detected
 
 // Strip ANSI escape sequences and control characters from terminal data
 function stripAnsi(str) {
@@ -224,31 +226,68 @@ class Session {
     });
   }
 
+  /**
+   * Wait for a pattern in PTY output, then call the callback.
+   * Falls back to the callback after timeoutMs if the pattern never matches.
+   */
+  _waitForOutput(pattern, timeoutMs, callback) {
+    let buffer = "";
+    let resolved = false;
+
+    const resolve = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(fallback);
+      disposable.dispose();
+      callback();
+    };
+
+    const disposable = this.pty.onData((data) => {
+      buffer += stripAnsi(data);
+      // Keep buffer bounded
+      if (buffer.length > 4096) buffer = buffer.slice(-4096);
+      if (pattern.test(buffer)) {
+        resolve();
+      }
+    });
+    const fallback = setTimeout(() => {
+      console.log(`[Session ${this.id}] _waitForOutput timed out after ${timeoutMs}ms, proceeding with fallback`);
+      resolve();
+    }, timeoutMs);
+  }
+
   _autoAcceptTrust() {
-    // The workspace trust dialog appears on first launch in a directory.
-    // Send Enter after a short delay to accept it.
-    setTimeout(() => {
+    // Wait for the workspace trust dialog to actually appear before accepting.
+    // Matches "trust" or "Trust" in the output (e.g. "Do you trust the files in this folder?")
+    this._waitForOutput(/[Tt]rust/, 5000, () => {
       if (this.status === "running") {
         this.pty.write("\r");
       }
-    }, 2000);
+    });
   }
 
   _injectPrompt(prompt) {
-    // Claude Code TUI continuously renders, so we wait a fixed delay
-    // for the CLI to finish startup before typing the prompt.
-    // We paste the text first, then press Enter after a short delay
-    // so the TUI input has time to process the pasted content.
-    setTimeout(() => {
-      if (this.status === "running") {
+    // Wait for Claude CLI to be ready (shows the input prompt indicator)
+    // before pasting. The ready signal is typically a ">" prompt or the
+    // end of the startup sequence where output settles.
+    // We detect readiness by looking for a period of output silence after
+    // initial startup, or the presence of common ready indicators.
+    const readyPattern = /(?:^|\n)\s*>\s*$|Type .* to|How can I help|What would you like/;
+
+    this._waitForOutput(readyPattern, PROMPT_INJECT_TIMEOUT, () => {
+      if (this.status !== "running") return;
+      // Small settle delay to let the TUI fully render the input area
+      setTimeout(() => {
+        if (this.status !== "running") return;
         this.pty.write(prompt);
+        // Wait for pasted text to be processed before pressing Enter
         setTimeout(() => {
           if (this.status === "running") {
             this.pty.write("\r");
           }
-        }, 500);
-      }
-    }, 5000);
+        }, PROMPT_SETTLE_DELAY);
+      }, 200);
+    });
   }
 
   _startJsonlPolling() {

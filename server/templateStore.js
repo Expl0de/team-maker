@@ -1,39 +1,44 @@
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
+import stateStore from "./stateStore.js";
 
+// Legacy path — used for one-time migration
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, "..", "data");
-const TEMPLATES_FILE = join(DATA_DIR, "templates.json");
+const LEGACY_FILE = join(__dirname, "..", "data", "templates.json");
 
-function ensureDataDir() {
-  mkdirSync(DATA_DIR, { recursive: true });
-}
+/**
+ * Migrate templates from the old data/templates.json into StateStore.
+ * Runs once on first load; after that, StateStore is the source of truth.
+ */
+export function migrateFromLegacy() {
+  const existing = stateStore.get("templates");
+  if (existing && existing.length > 0) return; // already migrated
 
-function readTemplates() {
   try {
-    return JSON.parse(readFileSync(TEMPLATES_FILE, "utf-8"));
+    const raw = readFileSync(LEGACY_FILE, "utf-8");
+    const templates = JSON.parse(raw);
+    if (Array.isArray(templates) && templates.length > 0) {
+      stateStore.set("templates", templates);
+      console.log(`[TemplateStore] Migrated ${templates.length} template(s) from legacy file`);
+    }
   } catch {
-    return [];
+    // No legacy file or can't read — that's fine
   }
 }
 
-function writeTemplates(templates) {
-  ensureDataDir();
-  writeFileSync(TEMPLATES_FILE, JSON.stringify(templates, null, 2));
-}
-
 export function loadAll() {
-  return readTemplates();
+  return stateStore.get("templates") || [];
 }
 
 export function get(id) {
-  return readTemplates().find((t) => t.id === id) || null;
+  const templates = loadAll();
+  return templates.find((t) => t.id === id) || null;
 }
 
 export function save({ name, roles }) {
-  const templates = readTemplates();
+  const templates = loadAll();
   const template = {
     id: uuidv4(),
     name,
@@ -41,15 +46,15 @@ export function save({ name, roles }) {
     createdAt: new Date().toISOString(),
   };
   templates.push(template);
-  writeTemplates(templates);
+  stateStore.set("templates", templates);
   return template;
 }
 
 export function remove(id) {
-  const templates = readTemplates();
+  const templates = loadAll();
   const idx = templates.findIndex((t) => t.id === id);
   if (idx === -1) return false;
   templates.splice(idx, 1);
-  writeTemplates(templates);
+  stateStore.set("templates", templates);
   return true;
 }

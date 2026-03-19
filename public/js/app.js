@@ -297,18 +297,25 @@ function createTerminal(containerEl) {
 
 function renderTeamItem(team) {
   const el = document.createElement("div");
-  el.className = "team-item";
+  const isStopped = team.status === "stopped";
+  el.className = "team-item" + (isStopped ? " stopped" : "");
   el.dataset.teamId = team.id;
   el.innerHTML = `
     <div class="team-item-info">
       <span class="team-item-name">${team.name}</span>
-      <span class="team-item-badge">${team.agentIds.length} agent${team.agentIds.length !== 1 ? "s" : ""}</span>
+      ${isStopped
+        ? '<span class="team-item-badge stopped">stopped</span>'
+        : `<span class="team-item-badge">${team.agentIds.length} agent${team.agentIds.length !== 1 ? "s" : ""}</span>`
+      }
       <span class="team-item-tokens"></span>
     </div>
-    <button class="delete-team-btn" title="Delete team">&times;</button>
+    <div class="team-item-actions">
+      ${isStopped ? '<button class="relaunch-team-btn" title="Re-launch team">&#8635;</button>' : ""}
+      <button class="delete-team-btn" title="Delete team">&times;</button>
+    </div>
   `;
   el.addEventListener("click", (e) => {
-    if (!e.target.classList.contains("delete-team-btn")) {
+    if (!e.target.classList.contains("delete-team-btn") && !e.target.classList.contains("relaunch-team-btn")) {
       selectTeam(team.id);
     }
   });
@@ -316,6 +323,13 @@ function renderTeamItem(team) {
     e.stopPropagation();
     deleteTeam(team.id);
   });
+  const relaunchBtn = el.querySelector(".relaunch-team-btn");
+  if (relaunchBtn) {
+    relaunchBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      relaunchTeam(team.id);
+    });
+  }
   return el;
 }
 
@@ -336,8 +350,9 @@ function selectTeam(teamId) {
     el.classList.toggle("active", el.dataset.teamId === teamId);
   });
 
-  // Enable/disable new agent button
-  newAgentBtn.disabled = !teamId;
+  // Enable/disable new agent button (disabled for stopped teams)
+  const selectedTeam = teamId ? teams.get(teamId) : null;
+  newAgentBtn.disabled = !teamId || (selectedTeam && selectedTeam.status === "stopped");
 
   // Show/hide usage tab
   const usageTab = tabBar.querySelector(".tab-usage");
@@ -369,7 +384,11 @@ function selectTeam(teamId) {
   } else {
     // Switch to the first visible tab in this team, or the active one if it belongs
     const team = teams.get(teamId);
-    if (team && team.agentIds.length > 0) {
+    if (team && team.status === "stopped") {
+      activeSessionId = null;
+      emptyState.innerHTML = `<p>Team "${team.name}" is stopped</p><p>Click the <strong>&#8635;</strong> button in the sidebar to re-launch it</p>`;
+      emptyState.style.display = "";
+    } else if (team && team.agentIds.length > 0) {
       const currentBelongsToTeam = activeSessionId && sessions.get(activeSessionId)?.teamId === teamId;
       if (!currentBelongsToTeam) {
         switchTab(team.agentIds[0]);
@@ -379,6 +398,7 @@ function selectTeam(teamId) {
       emptyState.style.display = "none";
     } else {
       activeSessionId = null;
+      emptyState.innerHTML = `<p>No teams yet</p><p>Click <strong>+ New Team</strong> to create a team with an orchestrator agent</p>`;
       emptyState.style.display = "";
     }
   }
@@ -727,6 +747,28 @@ function handleTeamUpdate(msg) {
         updateTeamBadge(msg.teamId);
       }
       // Session cleanup handled by closeTab if initiated locally
+      break;
+    }
+    case "team-relaunched": {
+      const team = teams.get(msg.teamId);
+      if (team) {
+        team.agentIds = msg.team.agentIds;
+        team.status = "running";
+      }
+      // Re-render sidebar item
+      const sideEl = teamList.querySelector(`[data-team-id="${msg.teamId}"]`);
+      if (sideEl) {
+        sideEl.replaceWith(renderTeamItem({ id: msg.teamId, name: msg.team.name, agentIds: msg.team.agentIds, status: "running" }));
+      }
+      // Attach main agent
+      if (msg.agent && !sessions.has(msg.agent.id)) {
+        attachSession(msg.agent);
+      }
+      if (msg.teamId === activeTeamId) {
+        selectTeam(msg.teamId);
+      }
+      updateSessionCount();
+      statusText.textContent = `Team "${msg.team.name}" re-launched`;
       break;
     }
     case "team-deleted": {
@@ -1086,6 +1128,42 @@ async function spawnNewAgent() {
   }
 }
 
+async function relaunchTeam(teamId) {
+  statusText.textContent = "Re-launching team...";
+  try {
+    const res = await fetch(`/api/teams/${teamId}/relaunch`, { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json();
+      statusText.textContent = `Error: ${err.error}`;
+      return;
+    }
+    const data = await res.json();
+
+    // Update local team state
+    const team = teams.get(teamId);
+    if (team) {
+      team.agentIds = data.team.agentIds;
+      team.status = "running";
+    }
+
+    // Re-render sidebar item
+    const el = teamList.querySelector(`[data-team-id="${teamId}"]`);
+    if (el) {
+      el.replaceWith(renderTeamItem({ id: teamId, name: data.team.name, agentIds: data.team.agentIds, status: "running" }));
+    }
+
+    // Attach main agent session
+    attachSession(data.mainAgent);
+
+    // Select this team
+    selectTeam(teamId);
+
+    statusText.textContent = `Team "${data.team.name}" re-launched`;
+  } catch (err) {
+    statusText.textContent = `Error: ${err.message}`;
+  }
+}
+
 async function deleteTeam(teamId) {
   statusText.textContent = "Deleting team...";
   try {
@@ -1138,15 +1216,18 @@ async function loadExistingTeams() {
         id: teamData.id,
         name: teamData.name,
         agentIds: teamData.agentIds,
+        status: teamData.status || "running",
       };
       teams.set(team.id, team);
       teamList.appendChild(renderTeamItem(team));
 
-      // Load agents for this team
-      const agentsRes = await fetch(`/api/teams/${team.id}/agents`);
-      const agents = await agentsRes.json();
-      for (const agent of agents) {
-        attachSession(agent);
+      // Only load agents for running teams (stopped teams have no PTY sessions)
+      if (team.status !== "stopped" && team.agentIds.length > 0) {
+        const agentsRes = await fetch(`/api/teams/${team.id}/agents`);
+        const agents = await agentsRes.json();
+        for (const agent of agents) {
+          attachSession(agent);
+        }
       }
     }
 

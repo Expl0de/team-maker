@@ -17,7 +17,7 @@ export const EXTRA_ROLES = [
 /**
  * Build the full orchestrator prompt for Agent 0.
  */
-export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, roles }) {
+export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, roles, orchestratorSessionId }) {
   const agentCount = roles.length;
   const roleBlocks = roles.map((role, i) => {
     const num = i + 1;
@@ -159,6 +159,10 @@ You are **Agent <N> — The <Role>**.
 - Shared plan: \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\`
 - Your inbox: \`.team-maker/${sessionId}/agent-<N>/AGENT_COMMUNICATE.md\`
 
+## Important: Agent 0 (Orchestrator) Session ID
+Agent 0's session ID is: \`${orchestratorSessionId}\`
+Use this ID with \`send_message\` to report back to the orchestrator. You can also use \`list_agents\` to discover other agents' IDs.
+
 ## How You Receive Work
 Messages from the orchestrator and other agents are delivered directly to your terminal via \`send_message\`. You do NOT need to poll or check files on a timer — messages arrive instantly.
 
@@ -166,9 +170,9 @@ When you receive a message:
 1. Execute the required work
 2. Update \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\` with your progress
 3. Create any needed files inside \`.team-maker/${sessionId}/share/\` for cross-agent access
-4. **ALWAYS use \`send_message\` to notify the sender when done** — this is MANDATORY. The sender is waiting for your reply and cannot see file changes. You MUST send a message back summarizing what you did and where to find the results.
+4. **ALWAYS use \`send_message\` to notify the sender when done** — this is MANDATORY. The sender is waiting for your reply and cannot see file changes. You MUST send a message back with \`send_message(agentId="${orchestratorSessionId}", message="...")\` summarizing what you did and where to find the results.
 
-When you finish all assigned tasks, use \`send_message\` to report completion to Agent 0, then stop.
+When you finish all assigned tasks, use \`send_message(agentId="${orchestratorSessionId}", message="...")\` to report completion to Agent 0, then stop.
 
 ## Communication Rules
 - To message another agent: append to \`.team-maker/${sessionId}/agent-<N>/AGENT_COMMUNICATE.md\`

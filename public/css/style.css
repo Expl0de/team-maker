@@ -177,6 +177,45 @@ header h1 {
   background: #313244;
 }
 
+.team-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.team-item.stopped {
+  opacity: 0.6;
+}
+
+.team-item.stopped:hover {
+  opacity: 1;
+}
+
+.team-item-badge.stopped {
+  color: #f9e2af;
+}
+
+.team-item .relaunch-team-btn {
+  background: none;
+  border: none;
+  color: #a6e3a1;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.team-item:hover .relaunch-team-btn {
+  opacity: 1;
+}
+
+.team-item .relaunch-team-btn:hover {
+  background: #313244;
+}
+
 /* Main content area */
 #main-content {
   flex: 1;
