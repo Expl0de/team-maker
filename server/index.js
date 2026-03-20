@@ -3,11 +3,13 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { execFile } from "child_process";
 import sessionManager from "./sessionManager.js";
 import teamManager from "./teamManager.js";
 import stateStore from "./stateStore.js";
 import * as templateStore from "./templateStore.js";
 import messageQueue from "./messageQueue.js";
+import taskBoard from "./taskBoard.js";
 import { BUILTIN_ROLES, EXTRA_ROLES } from "./promptBuilder.js";
 
 // Initialize persistence layer
@@ -15,6 +17,7 @@ stateStore.load();
 templateStore.migrateFromLegacy();
 teamManager.restoreFromState();
 messageQueue.restoreFromState();
+taskBoard.restoreFromState();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -138,6 +141,7 @@ app.delete("/api/teams/:teamId", (req, res) => {
   const destroyed = teamManager.destroy(req.params.teamId);
   if (!destroyed) return res.status(404).json({ error: "Team not found" });
   messageQueue.clearTeam(req.params.teamId);
+  taskBoard.clearTeam(req.params.teamId);
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "team-deleted" });
   res.json({ ok: true });
 });
@@ -267,6 +271,90 @@ app.post("/api/messages/read", (req, res) => {
 app.get("/api/teams/:teamId/messages", (req, res) => {
   const messages = messageQueue.getTeamMessages(req.params.teamId);
   res.json(messages);
+});
+
+// --- Task Board API ---
+
+// Create a task
+app.post("/api/teams/:teamId/tasks", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const { title, description, dependsOn, createdBy } = req.body || {};
+  if (!title) return res.status(400).json({ error: "title is required" });
+
+  const createdByName = createdBy ? (sessionManager.get(createdBy)?.name || createdBy) : null;
+  const task = taskBoard.createTask({
+    title,
+    description,
+    dependsOn,
+    createdBy,
+    createdByName,
+    teamId: req.params.teamId,
+  });
+  res.json({ task });
+});
+
+// Get tasks for a team (with optional filters)
+app.get("/api/teams/:teamId/tasks", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const filter = {};
+  if (req.query.status) filter.status = req.query.status;
+  if (req.query.assignedTo) filter.assignedTo = req.query.assignedTo;
+
+  const tasks = taskBoard.getTeamTasks(req.params.teamId, Object.keys(filter).length > 0 ? filter : null);
+  const summary = taskBoard.getBoardSummary(req.params.teamId);
+  res.json({ tasks, summary });
+});
+
+// Claim a task
+app.post("/api/teams/:teamId/tasks/:taskId/claim", (req, res) => {
+  const { agentId } = req.body || {};
+  if (!agentId) return res.status(400).json({ error: "agentId is required" });
+
+  const agentName = sessionManager.get(agentId)?.name || agentId;
+  const result = taskBoard.claimTask(req.params.taskId, agentId, agentName);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ task: result.task });
+});
+
+// Complete a task
+app.post("/api/teams/:teamId/tasks/:taskId/complete", (req, res) => {
+  const { agentId, result } = req.body || {};
+  if (!agentId) return res.status(400).json({ error: "agentId is required" });
+
+  const out = taskBoard.completeTask(req.params.taskId, agentId, result);
+  if (out.error) return res.status(400).json({ error: out.error });
+  res.json({ task: out.task });
+});
+
+// Fail a task
+app.post("/api/teams/:teamId/tasks/:taskId/fail", (req, res) => {
+  const { agentId, reason } = req.body || {};
+  if (!agentId) return res.status(400).json({ error: "agentId is required" });
+
+  const out = taskBoard.failTask(req.params.taskId, agentId, reason);
+  if (out.error) return res.status(400).json({ error: out.error });
+  res.json({ task: out.task });
+});
+
+// Retry a failed task (reset to pending)
+app.post("/api/teams/:teamId/tasks/:taskId/retry", (req, res) => {
+  const out = taskBoard.retryTask(req.params.taskId);
+  if (out.error) return res.status(400).json({ error: out.error });
+  res.json({ task: out.task });
+});
+
+// Broadcast task events over WebSocket for real-time UI updates
+taskBoard.onTaskEvent((event, task) => {
+  broadcast({
+    type: "team-task",
+    teamId: task.teamId,
+    event,
+    task,
+  });
 });
 
 // Broadcast new messages over WebSocket for real-time UI updates

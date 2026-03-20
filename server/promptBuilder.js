@@ -27,14 +27,6 @@ export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, 
 - **Focus**: ${role.responsibility}`;
   }).join("\n\n");
 
-  const templateRoleBlocks = roles.map((role, i) => {
-    const num = i + 1;
-    return `**Agent ${num} (${role.title}): ${role.responsibility}**
-- **Role Acknowledgment**: "I am Agent ${num} - The ${role.title} responsible for ${role.responsibility}"
-- **Primary Tasks**: ${role.description}
-- **Focus**: ${role.responsibility}`;
-  }).join("\n\n");
-
   const spawnInstructions = roles.map((role, i) => {
     const num = i + 1;
     return `- Agent ${num}: name="${role.title}", use the sub-agent prompt template below with N=${num}, Role="${role.title}", Responsibility="${role.responsibility}"`;
@@ -51,11 +43,22 @@ Your session ID is: \`${orchestratorSessionId}\`
 
 ## MCP Tools Available
 You have these MCP tools to manage your team:
+
+### Agent Management
 - \`spawn_agent(name, prompt)\` — spawn a new agent in your team
 - \`list_agents()\` — list all agents with their session IDs and status
+
+### Messaging
 - \`send_message(agentId, message, fromAgentId?)\` — send a message to another agent (queued + delivered instantly). Pass your own session ID as \`fromAgentId\` for tracking.
 - \`check_inbox(agentId)\` — check your inbox for unread messages. Pass your own session ID.
 - \`mark_read(messageId, agentId?)\` — mark a message as read after processing. Use \`messageId="all"\` with your agentId to mark all read.
+
+### Task Board
+- \`create_task(title, description?, dependsOn?, fromAgentId?)\` — create a task on the board. Use \`dependsOn\` (array of task IDs) for tasks that must wait.
+- \`claim_task(taskId, agentId)\` — assign a pending task to yourself or to an agent. Dependencies must be completed first.
+- \`complete_task(taskId, agentId, result)\` — mark a task done with a summary of what was accomplished.
+- \`fail_task(taskId, agentId, reason)\` — mark a task as failed so it can be reassigned.
+- \`get_tasks(status?, assignedTo?)\` — view the current task board. Filter by status or assignee.
 
 ---
 
@@ -64,57 +67,30 @@ You have these MCP tools to manage your team:
 Session ID: \`${sessionId}\`
 Working directory: \`${cwd}\`
 
-Create the following directory structure:
+Create a shared directory for cross-agent artifacts:
 \`\`\`
-.team-maker/${sessionId}/
-├── memory/
-│   └── multi-agent-template.md
-├── share/
-│   └── MULTI_AGENT_PLAN.md
+.team-maker/${sessionId}/share/
 \`\`\`
 
 ---
 
-## Step 2: Write \`.team-maker/${sessionId}/memory/multi-agent-template.md\`
+## Step 2: Plan Tasks on the Task Board
 
-Save the following content exactly:
-\`\`\`markdown
-# Multi-Agent Workflow Template — ${teamName}
+Analyze the user's request and break it down into concrete tasks using \`create_task\`. Each task should be:
+- **Specific**: clear deliverable, not vague
+- **Assignable**: mapped to one of the agent roles below
+- **Ordered**: use \`dependsOn\` when a task requires another to finish first
 
-## Agent Roles
-
-**Agent 0 (Orchestrator): Team Management & User Communication**
-- **Role Acknowledgment**: "I am Agent 0 - The Orchestrator responsible for Team Management & User Communication"
-- **Primary Tasks**: Orchestrate tasks, assign work, communicate with user
-- **Focus**: Communication with user and task assignment
-
-${templateRoleBlocks}
-\`\`\`
+Example workflow:
+1. \`create_task(title="Analyze codebase architecture", description="...")\` → returns task ID
+2. \`create_task(title="Implement auth module", description="...", dependsOn=["<task-1-id>"])\`
+3. \`create_task(title="Write auth tests", description="...", dependsOn=["<task-2-id>"])\`
 
 ---
 
-## Step 3: Write \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\`
+## Step 3: Spawn Sub-Agents
 
-Initialize with this structure (adapt tasks based on the actual project):
-\`\`\`markdown
-# Multi-Agent Plan — Session: ${sessionId}
-> All agents should update their task status here whenever work progresses.
-
----
-
-## Task: [Replace with actual tasks based on the user's request]
-- **Assigned To**: [Agent Name]
-- **Status**: Pending | In Progress | Blocked | Done
-- **Dependencies**: [none or describe]
-- **Notes**: [context, links to files, coordination notes]
-- **Last Updated**: [YYYY-MM-DD HH:MM] by [Agent Name]
-\`\`\`
-
----
-
-## Step 4: Spawn Sub-Agents
-
-Use the \`spawn_agent\` MCP tool to create each agent. Spawn all ${agentCount} agents immediately:
+Use the \`spawn_agent\` MCP tool to create each agent. Spawn all ${agentCount} agents:
 ${spawnInstructions}
 
 ### Sub-Agent Spawn Prompt Template
@@ -128,56 +104,66 @@ You are **Agent <N> — The <Role>**.
 
 ## Session
 - Session ID: \`${sessionId}\`
-- Shared plan: \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\`
+- Shared artifacts: \`.team-maker/${sessionId}/share/\`
 
 ## Important: Agent 0 (Orchestrator) Session ID
 Agent 0's session ID is: \`${orchestratorSessionId}\`
 Use this ID with \`send_message\` to report back to the orchestrator.
 
 ## Discovering Your Own Session ID
-Use \`list_agents()\` to see all agents and find your own session ID. You need this for \`check_inbox\` and \`fromAgentId\` in \`send_message\`.
+Use \`list_agents()\` to see all agents and find your own session ID. You need this for \`check_inbox\`, \`fromAgentId\` in \`send_message\`, and all task board tools.
 
-## MCP Communication Tools
+## MCP Tools
+
+### Communication
 - \`send_message(agentId, message, fromAgentId?)\` — send a message to another agent. Always pass your own session ID as \`fromAgentId\`.
 - \`check_inbox(agentId)\` — check for unread messages. Pass your own session ID.
 - \`mark_read(messageId)\` — mark a message as read after processing it.
 - \`list_agents()\` — discover all agents and their session IDs.
 
+### Task Board
+- \`get_tasks()\` — view all tasks on the board to find work
+- \`claim_task(taskId, agentId)\` — claim a pending task (dependencies must be completed first)
+- \`complete_task(taskId, agentId, result)\` — mark your task done with a summary
+- \`fail_task(taskId, agentId, reason)\` — report a failure so the orchestrator can reassign
+
 ## How You Receive Work
-Messages from the orchestrator and other agents are delivered directly to your terminal via \`send_message\`. You do NOT need to poll — messages arrive instantly.
+The orchestrator creates tasks on the task board and assigns them to you. Messages arrive via \`send_message\` — you do NOT need to poll.
 
-When you receive a message:
-1. Execute the required work
-2. Update \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\` with your progress
-3. Create any needed files inside \`.team-maker/${sessionId}/share/\` for cross-agent access
-4. **ALWAYS use \`send_message\` to notify the sender when done** — this is MANDATORY. The sender is waiting for your reply. You MUST send a message back with \`send_message(agentId="${orchestratorSessionId}", message="...")\` summarizing what you did and where to find the results.
+When you receive a task assignment:
+1. Use \`get_tasks()\` to see the task details and dependencies
+2. Use \`claim_task(taskId, agentId)\` to claim the task (use your own session ID)
+3. Execute the required work
+4. Use \`complete_task(taskId, agentId, result)\` with a summary of what you did
+5. If you fail, use \`fail_task(taskId, agentId, reason)\` so it can be reassigned
+6. **ALWAYS use \`send_message\` to notify the orchestrator when done** — this is MANDATORY. Send a message to \`send_message(agentId="${orchestratorSessionId}", message="...")\` summarizing results.
 
-When you finish all assigned tasks, use \`send_message(agentId="${orchestratorSessionId}", message="...")\` to report completion to Agent 0, then stop.
-
-## Communication Rules
-- All messaging goes through MCP tools (\`send_message\`, \`check_inbox\`, \`mark_read\`)
-- To update task status: edit \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\`
-- You may create additional files inside \`.team-maker/${sessionId}/share/\` (diagrams, specs, outputs, etc.)
+You may create files inside \`.team-maker/${sessionId}/share/\` for cross-agent access.
 
 ## Role-Specific Details
-<Paste the relevant agent block from multi-agent-template.md>
+<Paste the relevant agent block from the roles below>
 \`\`\`
+
+---
+
+## Step 4: Assign Tasks to Agents
+
+After spawning agents, use \`send_message\` to tell each agent which task(s) to claim. Include the task ID so they can \`claim_task\` it.
 
 ---
 
 ## Agent 0 Ongoing Responsibilities
 
-After spawning all agents and assigning initial tasks via \`send_message\`:
-
 1. **WAIT for responses**: After assigning a task, WAIT for the agent to reply via \`send_message\` before doing anything related to that task. Do NOT proceed, build, or implement anything you have delegated. You are the orchestrator — you coordinate, you do NOT build.
 2. **You do NOT write code or create artifacts**: Your job is to break down work, assign it to agents, and coordinate. If something needs to be built, designed, or implemented — assign it to the appropriate agent. Never do it yourself.
-3. **React to incoming messages**: Sub-agents will message you via \`send_message\`. Process these as they arrive. You can also use \`check_inbox(agentId="${orchestratorSessionId}")\` to check for any missed messages.
-4. **Coordinate work**: Use \`send_message\` to assign tasks, unblock agents, and relay information between agents.
-5. **Keep MULTI_AGENT_PLAN.md current**: Update task statuses as agents report progress.
-6. **Communicate with the user**: You are the only agent that talks to the user directly. Relay relevant updates.
-7. **If user gives new instructions**: Break down into tasks, update MULTI_AGENT_PLAN.md, and use \`send_message\` to assign work.
-8. **Resolve blockers** by reassigning or escalating.
-9. **Once all tasks are "Done"**, report final status to the user.
+3. **Monitor the task board**: Use \`get_tasks()\` to check overall progress. React to completed and failed tasks.
+4. **React to incoming messages**: Sub-agents will message you via \`send_message\`. Process these as they arrive. You can also use \`check_inbox(agentId="${orchestratorSessionId}")\` to check for any missed messages.
+5. **Coordinate work**: Use \`send_message\` to assign tasks, unblock agents, and relay information between agents.
+6. **Handle failures**: When a task fails, reassign it or create a new task to address the issue.
+7. **Communicate with the user**: You are the only agent that talks to the user directly. Relay relevant updates.
+8. **If user gives new instructions**: Create new tasks with \`create_task\`, then assign to appropriate agents via \`send_message\`.
+9. **Resolve blockers** by reassigning or escalating.
+10. **Once all tasks are completed** (check with \`get_tasks()\`), report final status to the user.
 
 ---
 
@@ -185,15 +171,23 @@ After spawning all agents and assigning initial tasks via \`send_message\`:
 
 ${taskPrompt}
 
-Break this down into specific tasks, assign them to the appropriate agents based on their roles, and coordinate their work.
+Break this down into specific tasks using \`create_task\`, spawn agents, assign tasks, and coordinate their work.
 
 ---
 
-## Reference: Session File Locations
+## Agent Roles
+
+**Agent 0 (Orchestrator): Team Management & User Communication**
+- **Primary Tasks**: Orchestrate tasks, assign work, communicate with user
+- **Focus**: Communication with user and task assignment
+
+${roleBlocks}
+
+---
+
+## Reference: Shared Artifacts
 
 | Purpose | Path |
 |---|---|
-| Team template | \`.team-maker/${sessionId}/memory/multi-agent-template.md\` |
-| Shared plan | \`.team-maker/${sessionId}/share/MULTI_AGENT_PLAN.md\` |
 | Shared artifacts | \`.team-maker/${sessionId}/share/<any-file>\` |`;
 }

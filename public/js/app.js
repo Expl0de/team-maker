@@ -11,6 +11,10 @@ let usageRefreshInterval = null;
 let messagesTabActive = false;
 const teamMessages = new Map(); // teamId -> message[]
 
+// Tasks tab state
+let tasksTabActive = false;
+const teamTasks = new Map(); // teamId -> task[]
+
 // Role editor state
 let currentRoles = [];
 let editingRoleIndex = -1;
@@ -382,21 +386,35 @@ function selectTeam(teamId) {
     messagesTab.style.display = "none";
   }
 
+  // Show/hide tasks tab
+  const tasksTab = tabBar.querySelector(".tab-tasks");
+  if (teamId) {
+    if (!tasksTab) {
+      createTasksTab();
+    } else {
+      tasksTab.style.display = "";
+    }
+  } else if (tasksTab) {
+    tasksTab.style.display = "none";
+  }
+
   // Show only tabs for this team, hide others
-  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages)").forEach((t) => {
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks)").forEach((t) => {
     const session = sessions.get(t.dataset.id);
     t.style.display = (session && session.teamId === teamId) ? "" : "none";
   });
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel)").forEach((w) => {
     const session = sessions.get(w.dataset.id);
     if (!session || session.teamId !== teamId) {
       w.classList.remove("active");
     }
   });
 
-  // If usage/messages tab was active, keep it; otherwise switch to an agent tab
+  // If usage/messages/tasks tab was active, keep it; otherwise switch to an agent tab
   if (usageTabActive) {
     switchToUsageTab();
+  } else if (tasksTabActive) {
+    switchToTasksTab();
   } else if (messagesTabActive) {
     switchToMessagesTab();
   } else {
@@ -515,6 +533,11 @@ function attachSession(data) {
           handleTeamMessage(msg);
           return;
         }
+        // Handle team task broadcasts
+        if (msg.type === "team-task") {
+          handleTeamTaskEvent(msg);
+          return;
+        }
       } catch {
         // Not JSON — terminal data
       }
@@ -605,6 +628,7 @@ function switchTab(sessionId) {
   activeSessionId = sessionId;
   usageTabActive = false;
   messagesTabActive = false;
+  tasksTabActive = false;
 
   // Deactivate usage tab and panel
   const usageTab = tabBar.querySelector(".tab-usage");
@@ -617,11 +641,16 @@ function switchTab(sessionId) {
   if (messagesTab) messagesTab.classList.remove("active");
   document.getElementById("messages-panel").classList.remove("active");
 
-  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages)").forEach((t) => {
+  // Deactivate tasks tab and panel
+  const tasksTab = tabBar.querySelector(".tab-tasks");
+  if (tasksTab) tasksTab.classList.remove("active");
+  document.getElementById("tasks-panel").classList.remove("active");
+
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks)").forEach((t) => {
     t.classList.toggle("active", t.dataset.id === sessionId);
   });
 
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel)").forEach((w) => {
     w.classList.toggle("active", w.dataset.id === sessionId);
   });
 
@@ -658,9 +687,10 @@ function createUsageTab() {
 function switchToUsageTab() {
   usageTabActive = true;
   messagesTabActive = false;
+  tasksTabActive = false;
   activeSessionId = null;
 
-  // Deactivate all agent tabs, messages tab, and wrappers
+  // Deactivate all agent tabs, messages tab, tasks tab, and wrappers
   tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => t.classList.remove("active"));
   terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => w.classList.remove("active"));
 
@@ -699,6 +729,7 @@ function createMessagesTab() {
 function switchToMessagesTab() {
   messagesTabActive = true;
   usageTabActive = false;
+  tasksTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -820,6 +851,174 @@ function updateMessagesUnreadBadge(count) {
       b.textContent = count;
       tab.appendChild(b);
     }
+  }
+}
+
+// --- Tasks tab ---
+
+function createTasksTab() {
+  const existing = tabBar.querySelector(".tab-tasks");
+  if (existing) existing.remove();
+
+  const tab = document.createElement("div");
+  tab.className = "tab tab-tasks";
+  tab.innerHTML = `<span class="tasks-tab-icon">📋</span><span class="tab-name">Tasks</span>`;
+  tab.addEventListener("click", () => switchToTasksTab());
+
+  // Insert after messages tab
+  const messagesTab = tabBar.querySelector(".tab-messages");
+  if (messagesTab) {
+    messagesTab.after(tab);
+  } else {
+    const usageTab = tabBar.querySelector(".tab-usage");
+    if (usageTab) usageTab.after(tab);
+    else tabBar.prepend(tab);
+  }
+  return tab;
+}
+
+function switchToTasksTab() {
+  tasksTabActive = true;
+  usageTabActive = false;
+  messagesTabActive = false;
+  activeSessionId = null;
+
+  // Deactivate all other tabs and wrappers
+  tabBar.querySelectorAll(".tab:not(.tab-tasks)").forEach((t) => t.classList.remove("active"));
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#tasks-panel)").forEach((w) => w.classList.remove("active"));
+  stopUsageAutoRefresh();
+
+  // Activate tasks tab and panel
+  const tasksTab = tabBar.querySelector(".tab-tasks");
+  if (tasksTab) tasksTab.classList.add("active");
+  document.getElementById("tasks-panel").classList.add("active");
+  emptyState.style.display = "none";
+
+  // Load tasks
+  if (activeTeamId) {
+    loadTeamTasks(activeTeamId);
+  }
+}
+
+async function loadTeamTasks(teamId) {
+  try {
+    const res = await fetch(`/api/teams/${teamId}/tasks`);
+    const data = await res.json();
+    teamTasks.set(teamId, data.tasks);
+    renderTasksPanel(data.tasks, data.summary);
+  } catch {
+    renderTasksPanel([], null);
+  }
+}
+
+function renderTasksPanel(tasks, summary) {
+  const panel = document.getElementById("tasks-panel-content");
+  if (!tasks || tasks.length === 0) {
+    panel.innerHTML = '<div class="tasks-empty">No tasks yet</div>';
+    return;
+  }
+
+  const summaryHtml = summary ? renderTaskSummaryHTML(summary) : "";
+
+  // Group tasks by status into kanban columns
+  const columns = {
+    pending: tasks.filter((t) => t.status === "pending"),
+    active: tasks.filter((t) => t.status === "assigned" || t.status === "in_progress"),
+    completed: tasks.filter((t) => t.status === "completed"),
+    failed: tasks.filter((t) => t.status === "failed"),
+  };
+
+  panel.innerHTML = summaryHtml + `
+    <div class="tasks-board">
+      <div class="tasks-column">
+        <div class="tasks-column-header pending">Pending <span class="tasks-count">${columns.pending.length}</span></div>
+        <div class="tasks-column-body">${columns.pending.map((t) => renderTaskCard(t)).join("")}</div>
+      </div>
+      <div class="tasks-column">
+        <div class="tasks-column-header active">In Progress <span class="tasks-count">${columns.active.length}</span></div>
+        <div class="tasks-column-body">${columns.active.map((t) => renderTaskCard(t)).join("")}</div>
+      </div>
+      <div class="tasks-column">
+        <div class="tasks-column-header completed">Completed <span class="tasks-count">${columns.completed.length}</span></div>
+        <div class="tasks-column-body">${columns.completed.map((t) => renderTaskCard(t)).join("")}</div>
+      </div>
+      <div class="tasks-column">
+        <div class="tasks-column-header failed">Failed <span class="tasks-count">${columns.failed.length}</span></div>
+        <div class="tasks-column-body">${columns.failed.map((t) => renderTaskCard(t)).join("")}</div>
+      </div>
+    </div>
+  `;
+
+  // Attach retry button handlers
+  panel.querySelectorAll(".task-retry-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      const taskId = e.target.dataset.taskId;
+      const teamId = e.target.dataset.teamId;
+      try {
+        await fetch(`/api/teams/${teamId}/tasks/${taskId}/retry`, { method: "POST" });
+        loadTeamTasks(teamId);
+      } catch {}
+    });
+  });
+}
+
+function renderTaskSummaryHTML(summary) {
+  return `
+    <div class="tasks-summary">
+      <span class="tasks-summary-item pending">${summary.pending} pending</span>
+      <span class="tasks-summary-item active">${(summary.assigned || 0) + (summary.in_progress || 0)} active</span>
+      <span class="tasks-summary-item completed">${summary.completed} done</span>
+      <span class="tasks-summary-item failed">${summary.failed} failed</span>
+      <span class="tasks-summary-total">${summary.total} total</span>
+    </div>
+  `;
+}
+
+function renderTaskCard(task) {
+  const time = new Date(task.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const assignee = task.assignedToName ? `<span class="task-assignee">${escapeHtml(task.assignedToName)}</span>` : "";
+  const desc = task.description
+    ? `<div class="task-desc">${escapeHtml(task.description).slice(0, 200)}</div>`
+    : "";
+  const result = task.result
+    ? `<div class="task-result">${escapeHtml(task.result).slice(0, 200)}</div>`
+    : "";
+  const failReason = task.failReason
+    ? `<div class="task-fail-reason">${escapeHtml(task.failReason).slice(0, 200)}</div>`
+    : "";
+  const retryBtn = task.status === "failed"
+    ? `<button class="task-retry-btn" data-task-id="${task.id}" data-team-id="${task.teamId}">↻ Retry</button>`
+    : "";
+  const deps = task.dependsOn && task.dependsOn.length > 0
+    ? `<div class="task-deps">depends on ${task.dependsOn.length} task(s)</div>`
+    : "";
+
+  return `<div class="task-card task-${task.status}">
+    <div class="task-card-header">
+      <span class="task-title">${escapeHtml(task.title)}</span>
+      <span class="task-time">${time}</span>
+    </div>
+    ${desc}${assignee}${deps}${result}${failReason}${retryBtn}
+  </div>`;
+}
+
+function handleTeamTaskEvent(msg) {
+  const teamId = msg.teamId;
+
+  // Update local cache
+  if (teamTasks.has(teamId)) {
+    const tasks = teamTasks.get(teamId);
+    const idx = tasks.findIndex((t) => t.id === msg.task.id);
+    if (idx >= 0) {
+      tasks[idx] = msg.task;
+    } else {
+      tasks.push(msg.task);
+    }
+  }
+
+  // If tasks panel is active, reload
+  if (tasksTabActive && activeTeamId === teamId) {
+    loadTeamTasks(teamId);
   }
 }
 
@@ -969,6 +1168,7 @@ function handleTeamUpdate(msg) {
         }
         teams.delete(msg.teamId);
         teamMessages.delete(msg.teamId);
+        teamTasks.delete(msg.teamId);
         const el = teamList.querySelector(`[data-team-id="${msg.teamId}"]`);
         if (el) el.remove();
 
