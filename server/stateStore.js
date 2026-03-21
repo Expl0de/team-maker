@@ -12,6 +12,7 @@ const DEFAULT_STATE = {
   messages: {},
   tasks: {},
   contexts: {},
+  files: {},
   templates: [],
   settings: {},
 };

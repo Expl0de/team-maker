@@ -146,6 +146,7 @@ app.delete("/api/teams/:teamId", (req, res) => {
   messageQueue.clearTeam(req.params.teamId);
   taskBoard.clearTeam(req.params.teamId);
   contextStore.clearTeam(req.params.teamId);
+  stateStore.delete(`files.${req.params.teamId}`);
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "team-deleted" });
   res.json({ ok: true });
 });
@@ -312,43 +313,63 @@ app.get("/api/teams/:teamId/events", (req, res) => {
 
 // Get files touched by agents (Write/Edit tool calls from JSONL events)
 app.get("/api/teams/:teamId/files", (req, res) => {
-  const team = teamManager.get(req.params.teamId);
+  const teamId = req.params.teamId;
+  const team = teamManager.get(teamId);
   if (!team) return res.status(404).json({ error: "Team not found" });
 
-  const agents = teamManager.getAgents(req.params.teamId);
-  if (!agents) return res.json({ files: [] });
+  const agents = teamManager.getAgents(teamId);
 
-  // Collect Write/Edit tool_call events from all agents
+  // Collect Write/Edit tool_call events from all live agents
   const fileMap = new Map(); // file_path -> { path, agent, operation, timestamp }
-  for (const agentData of agents) {
-    const session = sessionManager.get(agentData.id);
-    if (!session || !session.getEvents) continue;
-    for (const event of session.getEvents()) {
-      if (event.type !== "tool_call") continue;
-      if (event.toolName !== "Write" && event.toolName !== "Edit") continue;
-      const filePath = event.input?.file_path;
-      if (!filePath) continue;
+  if (agents) {
+    for (const agentData of agents) {
+      const session = sessionManager.get(agentData.id);
+      if (!session || !session.getEvents) continue;
+      for (const event of session.getEvents()) {
+        if (event.type !== "tool_call") continue;
+        if (event.toolName !== "Write" && event.toolName !== "Edit") continue;
+        const filePath = event.input?.file_path;
+        if (!filePath) continue;
 
-      const existing = fileMap.get(filePath);
-      const operation = event.toolName === "Write" ? "created" : "edited";
-      if (!existing || new Date(event.timestamp) > new Date(existing.timestamp)) {
-        fileMap.set(filePath, {
-          path: filePath,
-          relativePath: filePath.startsWith(team.cwd)
-            ? relative(team.cwd, filePath) || filePath
-            : filePath,
-          agentName: event.sessionName || agentData.name,
-          sessionId: event.sessionId,
-          operation: existing ? "edited" : operation,
-          timestamp: event.timestamp,
-        });
+        const existing = fileMap.get(filePath);
+        const operation = event.toolName === "Write" ? "created" : "edited";
+        if (!existing || new Date(event.timestamp) > new Date(existing.timestamp)) {
+          fileMap.set(filePath, {
+            path: filePath,
+            relativePath: filePath.startsWith(team.cwd)
+              ? relative(team.cwd, filePath) || filePath
+              : filePath,
+            agentName: event.sessionName || agentData.name,
+            sessionId: event.sessionId,
+            operation: existing ? "edited" : operation,
+            timestamp: event.timestamp,
+          });
+        }
       }
+    }
+  }
+
+  // Merge with persisted files (persisted data fills gaps for agents no longer running)
+  const persisted = stateStore.get(`files.${teamId}`) || {};
+  for (const [path, entry] of Object.entries(persisted)) {
+    if (!fileMap.has(path)) {
+      fileMap.set(path, entry);
     }
   }
 
   const files = Array.from(fileMap.values()).sort(
     (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
   );
+
+  // Persist current file entries to stateStore for restore after restart
+  if (files.length > 0) {
+    const toStore = {};
+    for (const f of files) {
+      toStore[f.path] = f;
+    }
+    stateStore.set(`files.${teamId}`, toStore);
+  }
+
   res.json({ files });
 });
 
