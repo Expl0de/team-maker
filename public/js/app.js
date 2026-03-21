@@ -19,6 +19,13 @@ const teamTasks = new Map(); // teamId -> task[]
 let contextTabActive = false;
 const teamContexts = new Map(); // teamId -> entry[]
 
+// Track handled idle events to avoid duplicate toasts from multiple WebSocket connections
+const handledIdleEvents = new Set();
+
+// Files tab state
+let filesTabActive = false;
+const teamFiles = new Map(); // teamId -> file[]
+
 // Events tab state (AP3: structured JSONL events)
 let eventsTabActive = false;
 const teamEvents = new Map(); // teamId -> event[]
@@ -212,6 +219,9 @@ function handleActivityUpdate(sessionId, active) {
   const dot = session.tabEl.querySelector(".status-dot");
   if (active) {
     dot.classList.add("working");
+    // Clear idle dedup keys so future idle events can trigger toasts again
+    handledIdleEvents.delete(`${sessionId}:agent_idle_warning`);
+    handledIdleEvents.delete(`${sessionId}:agent_idle_killed`);
   } else {
     dot.classList.remove("working");
   }
@@ -431,19 +441,31 @@ function selectTeam(teamId) {
     contextTab.style.display = "none";
   }
 
+  // Show/hide files tab
+  const filesTab = tabBar.querySelector(".tab-files");
+  if (teamId) {
+    if (!filesTab) {
+      createFilesTab();
+    } else {
+      filesTab.style.display = "";
+    }
+  } else if (filesTab) {
+    filesTab.style.display = "none";
+  }
+
   // Show only tabs for this team, hide others
-  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context)").forEach((t) => {
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context):not(.tab-files)").forEach((t) => {
     const session = sessions.get(t.dataset.id);
     t.style.display = (session && session.teamId === teamId) ? "" : "none";
   });
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#context-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#context-panel):not(#files-panel)").forEach((w) => {
     const session = sessions.get(w.dataset.id);
     if (!session || session.teamId !== teamId) {
       w.classList.remove("active");
     }
   });
 
-  // If usage/messages/tasks/context tab was active, keep it; otherwise switch to an agent tab
+  // If usage/messages/tasks/context/files tab was active, keep it; otherwise switch to an agent tab
   if (usageTabActive) {
     switchToUsageTab();
   } else if (tasksTabActive) {
@@ -452,6 +474,8 @@ function selectTeam(teamId) {
     switchToMessagesTab();
   } else if (contextTabActive) {
     switchToContextTab();
+  } else if (filesTabActive) {
+    switchToFilesTab();
   } else {
     // Switch to the first visible tab in this team, or the active one if it belongs
     const team = teams.get(teamId);
@@ -702,6 +726,7 @@ function switchTab(sessionId) {
   tasksTabActive = false;
   eventsTabActive = false;
   contextTabActive = false;
+  filesTabActive = false;
 
   // Deactivate usage tab and panel
   const usageTab = tabBar.querySelector(".tab-usage");
@@ -729,11 +754,16 @@ function switchTab(sessionId) {
   if (contextTab) contextTab.classList.remove("active");
   document.getElementById("context-panel").classList.remove("active");
 
-  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context)").forEach((t) => {
+  // Deactivate files tab and panel
+  const filesTab = tabBar.querySelector(".tab-files");
+  if (filesTab) filesTab.classList.remove("active");
+  document.getElementById("files-panel").classList.remove("active");
+
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context):not(.tab-files)").forEach((t) => {
     t.classList.toggle("active", t.dataset.id === sessionId);
   });
 
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#events-panel):not(#context-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#events-panel):not(#context-panel):not(#files-panel)").forEach((w) => {
     w.classList.toggle("active", w.dataset.id === sessionId);
   });
 
@@ -772,6 +802,7 @@ function switchToUsageTab() {
   messagesTabActive = false;
   tasksTabActive = false;
   eventsTabActive = false;
+  filesTabActive = false;
   activeSessionId = null;
 
   // Deactivate all agent tabs, messages tab, tasks tab, events tab, and wrappers
@@ -815,6 +846,7 @@ function switchToMessagesTab() {
   usageTabActive = false;
   tasksTabActive = false;
   eventsTabActive = false;
+  filesTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -886,8 +918,14 @@ function escapeHtml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+const seenMessageIds = new Set();
+
 function handleTeamMessage(msg) {
   const teamId = msg.teamId;
+
+  // Deduplicate — broadcast goes to all WS connections, so each message arrives N times
+  if (msg.message.id && seenMessageIds.has(msg.message.id)) return;
+  if (msg.message.id) seenMessageIds.add(msg.message.id);
 
   // Store message
   if (!teamMessages.has(teamId)) {
@@ -967,6 +1005,7 @@ function switchToTasksTab() {
   usageTabActive = false;
   messagesTabActive = false;
   eventsTabActive = false;
+  filesTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1136,6 +1175,7 @@ function switchToEventsTab() {
   usageTabActive = false;
   messagesTabActive = false;
   tasksTabActive = false;
+  filesTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1292,6 +1332,13 @@ function handleAgentEvent(msg) {
       eventsPanel.scrollTop = eventsPanel.scrollHeight;
     }
   }
+
+  // If a Write/Edit tool call, refresh files panel if active
+  if (event.type === "tool_call" && (event.toolName === "Write" || event.toolName === "Edit") && event.input?.file_path) {
+    if (filesTabActive && activeTeamId === teamId) {
+      loadTeamFiles(teamId);
+    }
+  }
 }
 
 function handleAgentState(msg) {
@@ -1347,6 +1394,7 @@ function switchToContextTab() {
   messagesTabActive = false;
   tasksTabActive = false;
   eventsTabActive = false;
+  filesTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1424,11 +1472,145 @@ function handleTeamContextEvent(msg) {
   }
 }
 
+// --- Files tab ---
+
+function createFilesTab() {
+  const existing = tabBar.querySelector(".tab-files");
+  if (existing) existing.remove();
+
+  const tab = document.createElement("div");
+  tab.className = "tab tab-files";
+  tab.innerHTML = `<span class="files-tab-icon">📁</span><span class="tab-name">Files</span>`;
+  tab.addEventListener("click", () => switchToFilesTab());
+
+  // Insert after context tab
+  const contextTab = tabBar.querySelector(".tab-context");
+  if (contextTab) {
+    contextTab.after(tab);
+  } else {
+    const eventsTab = tabBar.querySelector(".tab-events");
+    if (eventsTab) eventsTab.after(tab);
+    else tabBar.prepend(tab);
+  }
+  return tab;
+}
+
+function switchToFilesTab() {
+  filesTabActive = true;
+  usageTabActive = false;
+  messagesTabActive = false;
+  tasksTabActive = false;
+  eventsTabActive = false;
+  contextTabActive = false;
+  activeSessionId = null;
+
+  // Deactivate all other tabs and wrappers
+  tabBar.querySelectorAll(".tab:not(.tab-files)").forEach((t) => t.classList.remove("active"));
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#files-panel)").forEach((w) => w.classList.remove("active"));
+  stopUsageAutoRefresh();
+
+  // Activate files tab and panel
+  const filesTab = tabBar.querySelector(".tab-files");
+  if (filesTab) filesTab.classList.add("active");
+  document.getElementById("files-panel").classList.add("active");
+  emptyState.style.display = "none";
+
+  // Load files
+  if (activeTeamId) {
+    loadTeamFiles(activeTeamId);
+  }
+}
+
+async function loadTeamFiles(teamId) {
+  try {
+    const res = await fetch(`/api/teams/${teamId}/files`);
+    const data = await res.json();
+    teamFiles.set(teamId, data.files || []);
+    renderFilesPanel(data.files || []);
+  } catch {
+    renderFilesPanel([]);
+  }
+}
+
+function renderFilesPanel(files) {
+  const panel = document.getElementById("files-panel-content");
+  if (!files || files.length === 0) {
+    panel.innerHTML = '<div class="files-empty">No files changed yet</div>';
+    return;
+  }
+
+  const items = files.map((f) => {
+    const time = new Date(f.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const opClass = f.operation === "edited" ? "edited" : "";
+    const icon = f.operation === "created" ? "📄" : "✏️";
+    return `<div class="file-item" data-path="${escapeHtml(f.path)}" onclick="viewFile('${escapeHtml(f.path).replace(/'/g, "\\'")}')">
+      <span class="file-item-icon">${icon}</span>
+      <div class="file-item-info">
+        <div class="file-item-path" title="${escapeHtml(f.path)}">${escapeHtml(f.relativePath)}</div>
+        <div class="file-item-meta">
+          <span class="file-item-agent">${escapeHtml(f.agentName)}</span>
+          <span class="file-item-op ${opClass}">${f.operation}</span>
+          <span class="file-item-time">${time}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+
+  panel.innerHTML = `<div class="files-list">${items}</div>`;
+}
+
+async function viewFile(filePath) {
+  if (!activeTeamId) return;
+  const panel = document.getElementById("files-panel-content");
+  panel.innerHTML = '<div class="files-empty">Loading file...</div>';
+
+  try {
+    const res = await fetch(`/api/teams/${activeTeamId}/files/read?path=${encodeURIComponent(filePath)}`);
+    if (!res.ok) {
+      const err = await res.json();
+      panel.innerHTML = `<div class="files-empty">${escapeHtml(err.error || "Failed to read file")}</div>`;
+      return;
+    }
+    const data = await res.json();
+    const filename = filePath.split("/").pop();
+    const isMarkdown = /\.md$/i.test(filename);
+
+    let contentHtml;
+    if (isMarkdown) {
+      const rendered = marked.parse(data.content);
+      contentHtml = `<div class="file-viewer-markdown">${rendered}</div>`;
+    } else {
+      const lines = data.content.split("\n");
+      const lineHtml = lines.map((line, i) => {
+        const num = i + 1;
+        const escaped = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return `<div class="file-line"><span class="file-line-number">${num}</span><span class="file-line-content">${escaped}</span></div>`;
+      }).join("");
+      contentHtml = `<pre>${lineHtml}</pre>`;
+    }
+
+    panel.innerHTML = `<div class="file-viewer">
+      <div class="file-viewer-header">
+        <button class="file-viewer-back" onclick="loadTeamFiles('${activeTeamId}')">← Back</button>
+        <span class="file-viewer-filename" title="${escapeHtml(filePath)}">${escapeHtml(filename)}</span>
+      </div>
+      <div class="file-viewer-content">${contentHtml}</div>
+    </div>`;
+  } catch {
+    panel.innerHTML = '<div class="files-empty">Failed to load file</div>';
+  }
+}
+
 // --- Agent idle events (AP5-A) ---
 
 function handleAgentIdleEvent(msg) {
   const event = msg.event;
   const name = event.sessionName || "Agent";
+
+  // Deduplicate: each idle event should only be handled once across all WS connections
+  const dedupeKey = `${event.sessionId}:${event.type}`;
+  if (handledIdleEvents.has(dedupeKey)) return;
+  handledIdleEvents.add(dedupeKey);
 
   if (event.type === "agent_idle_warning") {
     // Dim the tab and show idle badge

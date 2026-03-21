@@ -2,7 +2,8 @@ import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { dirname, join, resolve, relative } from "path";
+import { readFile } from "fs/promises";
 import { execFile } from "child_process";
 import sessionManager from "./sessionManager.js";
 import teamManager from "./teamManager.js";
@@ -305,6 +306,76 @@ app.get("/api/teams/:teamId/events", (req, res) => {
   if (limit) filtered = filtered.slice(-parseInt(limit, 10));
 
   res.json({ events: filtered });
+});
+
+// --- Files API (file browser panel) ---
+
+// Get files touched by agents (Write/Edit tool calls from JSONL events)
+app.get("/api/teams/:teamId/files", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const agents = teamManager.getAgents(req.params.teamId);
+  if (!agents) return res.json({ files: [] });
+
+  // Collect Write/Edit tool_call events from all agents
+  const fileMap = new Map(); // file_path -> { path, agent, operation, timestamp }
+  for (const agentData of agents) {
+    const session = sessionManager.get(agentData.id);
+    if (!session || !session.getEvents) continue;
+    for (const event of session.getEvents()) {
+      if (event.type !== "tool_call") continue;
+      if (event.toolName !== "Write" && event.toolName !== "Edit") continue;
+      const filePath = event.input?.file_path;
+      if (!filePath) continue;
+
+      const existing = fileMap.get(filePath);
+      const operation = event.toolName === "Write" ? "created" : "edited";
+      if (!existing || new Date(event.timestamp) > new Date(existing.timestamp)) {
+        fileMap.set(filePath, {
+          path: filePath,
+          relativePath: filePath.startsWith(team.cwd)
+            ? relative(team.cwd, filePath) || filePath
+            : filePath,
+          agentName: event.sessionName || agentData.name,
+          sessionId: event.sessionId,
+          operation: existing ? "edited" : operation,
+          timestamp: event.timestamp,
+        });
+      }
+    }
+  }
+
+  const files = Array.from(fileMap.values()).sort(
+    (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+  );
+  res.json({ files });
+});
+
+// Read a file's content (with path traversal protection)
+app.get("/api/teams/:teamId/files/read", async (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const filePath = req.query.path;
+  if (!filePath) return res.status(400).json({ error: "path parameter required" });
+
+  // Validate the path is within the team's working directory
+  const resolved = resolve(filePath);
+  const teamCwd = resolve(team.cwd);
+  if (!resolved.startsWith(teamCwd)) {
+    return res.status(403).json({ error: "Access denied: path outside team directory" });
+  }
+
+  try {
+    const content = await readFile(resolved, "utf-8");
+    res.json({ path: filePath, content });
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      return res.status(404).json({ error: "File not found" });
+    }
+    res.status(500).json({ error: "Failed to read file" });
+  }
 });
 
 // --- Task Board API ---
