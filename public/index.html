@@ -105,6 +105,34 @@
       </select>
       <p class="path-hint">Default model for all roles — individual roles can override</p>
 
+      <div class="model-routing-section">
+        <div class="model-routing-toggle">
+          <input type="checkbox" id="model-routing-enabled" />
+          <label for="model-routing-enabled">Enable smart model routing (auto-select model by task complexity)</label>
+        </div>
+        <div id="model-routing-config" class="model-routing-grid" style="display: none;">
+          <label>Low</label>
+          <select id="routing-low" class="modal-select">
+            <option value="claude-haiku-4-5-20251001" selected>Haiku</option>
+            <option value="claude-sonnet-4-6">Sonnet</option>
+            <option value="claude-opus-4-6">Opus</option>
+          </select>
+          <label>Medium</label>
+          <select id="routing-medium" class="modal-select">
+            <option value="claude-haiku-4-5-20251001">Haiku</option>
+            <option value="claude-sonnet-4-6" selected>Sonnet</option>
+            <option value="claude-opus-4-6">Opus</option>
+          </select>
+          <label>High</label>
+          <select id="routing-high" class="modal-select">
+            <option value="claude-haiku-4-5-20251001">Haiku</option>
+            <option value="claude-sonnet-4-6">Sonnet</option>
+            <option value="claude-opus-4-6" selected>Opus</option>
+          </select>
+        </div>
+        <p class="path-hint">Low = coordination/simple tasks, Medium = standard coding, High = architecture/complex work</p>
+      </div>
+
       <div class="role-editor-section">
         <label>Agent Roles</label>
         <div class="template-picker-row">

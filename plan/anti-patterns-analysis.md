@@ -363,37 +363,51 @@ The MCP tool interface (`store_context`, `query_context`, `list_context`) stays 
 
 ---
 
-#### Phase C: Smart Model Routing — do last (requires AP4 task board)
+#### Phase C: Smart Model Routing ✅ DONE
 
 **Problem:** Per-agent model selection is static. An Opus agent uses Opus for everything — including trivial coordination messages that Haiku could handle at 1/50th the cost.
 
 **Depends on:** AP4 (task board) — needs task metadata to distinguish "coordination" from "substantive" work.
 
-**Implementation Plan:**
-1. **`server/taskBoard.js`** — Add task complexity field
-   - Extend task schema: `{ ..., complexity: "low"|"medium"|"high" }`
-   - Orchestrator sets complexity when creating tasks
-   - `low` = coordination, status checks, simple file reads
-   - `medium` = standard coding tasks, reviews
-   - `high` = architecture decisions, complex debugging, multi-file refactors
-2. **`server/sessionManager.js`** — Dynamic model switching
-   - When agent claims a task, check task complexity against a model routing table:
-     | Complexity | Model |
-     |-----------|-------|
-     | `low` | Haiku |
-     | `medium` | Sonnet |
-     | `high` | Opus |
-   - Model routing table configurable per team (UI setting)
-   - **Challenge:** Claude Code CLI sets the model at spawn time — mid-session model switching may not be possible without restarting the session. Investigate whether `--model` can be changed via CLI command or if this requires spawning a new session per task.
-3. **Alternative if mid-session switching isn't possible:**
-   - Maintain a pool of sessions at different model tiers
-   - Route tasks to the appropriate session based on complexity
-   - This changes the agent model from "one persistent agent" to "task worker pool"
-   - More complex but potentially more efficient
+**Chosen approach:** Since Claude Code CLI sets the model at spawn time (mid-session model switching is not supported), the routing happens at **agent spawn time**. When the orchestrator creates tasks with complexity levels and then spawns agents, it passes `taskComplexity` to `spawn_agent`, which selects the model from the team's routing table.
+
+**What Was Implemented:**
+1. **`server/taskBoard.js`** — Added `complexity` field to task schema
+   - Valid values: `"low"` | `"medium"` | `"high"`, defaults to `"medium"`
+   - Added `getRecommendedModel(taskId, modelRouting)` method
+   - Complexity shown in `get_tasks` MCP tool output
+
+2. **`server/teamManager.js`** — Model routing configuration per team
+   - `DEFAULT_MODEL_ROUTING`: `{ low: "claude-haiku-4-5-20251001", medium: "claude-sonnet-4-6", high: "claude-opus-4-6" }`
+   - `Team.modelRouting` field persisted to state store
+   - `addAgent()` model priority: explicit model > routing table (by taskComplexity) > team default
+   - `updateModelRouting(teamId, routing)` method for runtime updates
+
+3. **`server/mcpServer.js`** — Updated MCP tools
+   - `create_task` — added `complexity` parameter (enum: low/medium/high)
+   - `spawn_agent` — added `model` and `taskComplexity` parameters
+   - `get_tasks` — output now shows `[complexity]` badge per task
+
+4. **`server/index.js`** — New REST API endpoints
+   - `GET /api/teams/:teamId/model-routing` — get routing table + defaults
+   - `PUT /api/teams/:teamId/model-routing` — update routing table
+   - Task creation endpoint accepts `complexity`
+   - Agent spawn endpoint accepts `taskComplexity`
+   - WebSocket broadcast on routing changes
+
+5. **`server/promptBuilder.js`** — Orchestrator prompt updated
+   - `create_task` docs include `complexity` parameter with guidance
+   - Task planning step instructs setting complexity on every task
+   - `spawn_agent` docs include `taskComplexity` for auto-model selection
+   - Spawn strategy instructs passing `taskComplexity` matching the task
+
+6. **Frontend** — Model routing UI
+   - Task cards show color-coded complexity badges (green=low, yellow=medium, red=high)
+   - Team creation modal: "Enable smart model routing" checkbox with per-level model selectors
+   - Tasks panel summary shows active routing config (🧠 Haiku / Sonnet / Opus)
+   - Teams loaded from API include `modelRouting` in local state
 
 **Estimated savings:** 40-60% cost reduction on coordination overhead (Haiku is ~1/50th the cost of Opus).
-
-**Status:** Deferred until AP4 (task board) is implemented and we can test whether Claude Code CLI supports mid-session model switching.
 
 ---
 
@@ -426,7 +440,7 @@ For balance, these patterns are good and worth preserving:
 | ~~4~~ | ~~AP3: PTY Control Plane~~ | ~~C: Hybrid (PTY display + JSONL control)~~ | ~~Medium~~ | ~~Structured events, resilience, keeps free subscription~~ | ✅ Done |
 | ~~5a~~ | ~~AP5-A: Lazy Spawning~~ | ~~On-demand spawn + idle timeout~~ | ~~Low~~ | ~~20-40% idle token savings~~ | ✅ Done |
 | ~~5b~~ | ~~AP5-B: Shared Context~~ | ~~In-memory store → LangChain vector DB~~ | ~~Medium~~ | ~~30-50% duplicate read savings, LangChain foundation~~ | ✅ Done |
-| **5c** | **AP5-C: Smart Model Routing** | **Per-task model selection** | Medium | 40-60% coordination cost reduction | Planned (AP4 done) |
+| ~~5c~~ | ~~AP5-C: Smart Model Routing~~ | ~~Per-task model selection~~ | ~~Medium~~ | ~~40-60% coordination cost reduction~~ | ✅ Done |
 
 ### Dependency chain
 ```
@@ -443,7 +457,7 @@ AP1 (done) → Persistence Layer (done) → AP2 (done) → AP4 (done) → AP5-C 
 - ~~AP3 (hybrid JSONL) is independent — next up~~ ✅ Done
 - ~~AP5-A (lazy spawning) has no hard dependencies — can be done anytime~~ ✅ Done
 - ~~AP5-B (shared context) uses the persistence layer, best done after AP3~~ ✅ Done
-- AP5-C (smart model routing) can now start (AP4 done, AP5-A done)
+- ~~AP5-C (smart model routing) can now start (AP4 done, AP5-A done)~~ ✅ Done
 
 ### Design constraint
 Team Maker runs agents as Claude Code CLI processes under a **Pro/Max flat-rate subscription**. All architectural decisions preserve this model — no migration to the Anthropic API (pay-per-token) unless building a commercial product. This is why Option C (hybrid) was chosen for AP3 instead of Option B (SDK/API).
@@ -452,15 +466,15 @@ Team Maker runs agents as Claude Code CLI processes under a **Pro/Max flat-rate 
 
 ## Architecture Vision: Before and After
 
-### Current Architecture (after AP1-AP4 + AP3 + AP5-A + AP5-B)
+### Current Architecture (after AP1-AP5 complete)
 ```
-Browser (xterm.js + task board UI + message log + event stream + context panel + toast notifications)
-  ↕ WebSocket (terminal bytes + structured events + idle events + context events)
-Express Server (with MessageQueue + TaskBoard + ContextStore + StateStore + JsonlWatcher + IdleTimeout)
+Browser (xterm.js + task board UI + message log + event stream + context panel + toast notifications + model routing config)
+  ↕ WebSocket (terminal bytes + structured events + idle events + context events + routing updates)
+Express Server (with MessageQueue + TaskBoard + ContextStore + StateStore + JsonlWatcher + IdleTimeout + ModelRouting)
   ↕ PTY (display only) + JSONL (structured control plane) + MCP (tool interface)
-  ↕ ~/.team-maker/state.json (persistence — teams, messages, tasks, contexts, templates)
-Claude Code CLI instances (spawned on-demand, auto-killed when idle)
-  ↕ MCP tools (check_inbox, create_task, complete_task, store_context, query_context, list_context)
+  ↕ ~/.team-maker/state.json (persistence — teams, messages, tasks, contexts, templates, model routing)
+Claude Code CLI instances (spawned on-demand with complexity-routed models, auto-killed when idle)
+  ↕ MCP tools (check_inbox, create_task w/complexity, complete_task, spawn_agent w/taskComplexity, store_context, query_context, list_context)
 Agent-to-Agent communication (event-driven, server-mediated)
 ```
 
@@ -471,6 +485,7 @@ Key differences:
 - Agents are nudged only when there's actual work (event-driven, not polling)
 - Agents are spawned on-demand and auto-killed after 10 minutes idle (AP5-A)
 - Shared context store reduces duplicate file reads by 30-50% (AP5-B)
+- Smart model routing: tasks tagged with complexity, agents spawned with complexity-appropriate models (AP5-C)
 - Context store provides future LangChain/vector DB integration point (swap backend, same MCP tools)
 - All changes preserve the Claude Pro/Max subscription model (no API costs)
 

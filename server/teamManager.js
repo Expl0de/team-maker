@@ -9,8 +9,15 @@ import { buildOrchestratorPrompt, BUILTIN_ROLES } from "./promptBuilder.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER_PATH = join(__dirname, "mcpServer.js");
 
+// Default model routing table: maps task complexity to Claude model
+const DEFAULT_MODEL_ROUTING = {
+  low: "claude-haiku-4-5-20251001",
+  medium: "claude-sonnet-4-6",
+  high: "claude-opus-4-6",
+};
+
 class Team {
-  constructor({ id, name, cwd, prompt, roles, sessionId, model, status }) {
+  constructor({ id, name, cwd, prompt, roles, sessionId, model, modelRouting, status }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
@@ -18,6 +25,7 @@ class Team {
     this.roles = roles;
     this.sessionId = sessionId;
     this.model = model || null; // team-level default model
+    this.modelRouting = modelRouting || null; // { low, medium, high } → model strings
     this.mainAgentId = null;
     this.agentIds = [];
     this.agentCounter = 0;
@@ -37,6 +45,7 @@ class Team {
       createdAt: this.createdAt.toISOString(),
       status: this.status,
       model: this.model,
+      modelRouting: this.modelRouting,
       sessionId: this.sessionId,
     };
   }
@@ -63,6 +72,7 @@ class TeamManager {
         roles: data.roles || [],
         sessionId: data.sessionId,
         model: data.model,
+        modelRouting: data.modelRouting || null,
         status: "stopped",
       });
       team.mainAgentId = data.mainAgentId || null;
@@ -85,6 +95,7 @@ class TeamManager {
       roles: team.roles,
       sessionId: team.sessionId,
       model: team.model,
+      modelRouting: team.modelRouting,
       mainAgentId: team.mainAgentId,
       agentCounter: team.agentCounter,
       createdAt: team.createdAt.toISOString(),
@@ -109,7 +120,7 @@ class TeamManager {
     writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
   }
 
-  create({ name, cwd, prompt, roles, model }) {
+  create({ name, cwd, prompt, roles, model, modelRouting }) {
     const id = uuidv4();
 
     // Use provided roles or default built-in roles
@@ -127,7 +138,7 @@ class TeamManager {
       String(now.getSeconds()).padStart(2, "0"),
     ].join("");
 
-    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, sessionId, model });
+    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, sessionId, model, modelRouting });
     this.teams.set(id, team);
 
     // Write MCP config for this team
@@ -179,12 +190,18 @@ class TeamManager {
     return Array.from(this.teams.values()).map((t) => t.toJSON());
   }
 
-  addAgent({ teamId, name, prompt, model }) {
+  addAgent({ teamId, name, prompt, model, taskComplexity }) {
     const team = this.teams.get(teamId);
     if (!team) return null;
 
-    // Use provided model, fall back to team-level default
-    const agentModel = model || team.model || null;
+    // Model priority: explicit model > routing table (by task complexity) > team default
+    let agentModel = model || null;
+    if (!agentModel && taskComplexity && team.modelRouting) {
+      agentModel = team.modelRouting[taskComplexity] || null;
+    }
+    if (!agentModel) {
+      agentModel = team.model || null;
+    }
 
     // Ensure MCP config exists for this team so sub-agents have messaging tools
     const mcpConfigPath = `/tmp/team-maker-mcp-${teamId}.json`;
@@ -278,6 +295,18 @@ class TeamManager {
     return { team, session };
   }
 
+  /**
+   * Update the model routing table for a team.
+   * modelRouting: { low: "model-id", medium: "model-id", high: "model-id" }
+   */
+  updateModelRouting(teamId, modelRouting) {
+    const team = this.teams.get(teamId);
+    if (!team) return null;
+    team.modelRouting = modelRouting;
+    this._persistTeam(team);
+    return team;
+  }
+
   destroy(teamId) {
     const team = this.teams.get(teamId);
     if (!team) return false;
@@ -298,4 +327,5 @@ class TeamManager {
   }
 }
 
+export { DEFAULT_MODEL_ROUTING };
 export default new TeamManager();

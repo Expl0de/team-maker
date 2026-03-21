@@ -1341,6 +1341,98 @@ header h1 {
   border-radius: 3px;
 }
 
+.tasks-summary-routing {
+  font-size: 10px;
+  color: #89b4fa;
+  background: rgba(137, 180, 250, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  margin-left: auto;
+}
+
+/* --- Task complexity badges --- */
+
+.task-complexity {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.task-complexity.complexity-low {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.12);
+  border: 1px solid rgba(166, 227, 161, 0.25);
+}
+
+.task-complexity.complexity-medium {
+  color: #f9e2af;
+  background: rgba(249, 226, 175, 0.12);
+  border: 1px solid rgba(249, 226, 175, 0.25);
+}
+
+.task-complexity.complexity-high {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.12);
+  border: 1px solid rgba(243, 139, 168, 0.25);
+}
+
+/* --- Model routing config --- */
+
+.model-routing-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid #313244;
+}
+
+.model-routing-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #cdd6f4;
+  margin-bottom: 8px;
+}
+
+.model-routing-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.model-routing-toggle label {
+  font-size: 11px;
+  color: #a6adc8;
+  cursor: pointer;
+}
+
+.model-routing-grid {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.model-routing-grid label {
+  font-size: 11px;
+  color: #a6adc8;
+  font-weight: 500;
+}
+
+.model-routing-grid select {
+  font-size: 11px;
+  padding: 3px 6px;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+}
+
 /* --- Events panel (AP3) --- */
 
 #events-panel {

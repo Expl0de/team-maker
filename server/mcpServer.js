@@ -18,24 +18,27 @@ const server = new McpServer({
 
 server.tool(
   "spawn_agent",
-  "Spawn a new agent in your team",
+  "Spawn a new agent in your team. If smart model routing is enabled, pass taskComplexity to auto-select the model based on the team's routing table (low=Haiku, medium=Sonnet, high=Opus by default).",
   {
     name: z.string().describe("Name for the new agent"),
     prompt: z.string().describe("Task/prompt for the new agent"),
+    model: z.string().optional().describe("Override model for this agent (e.g. 'claude-sonnet-4-6'). If omitted and taskComplexity is set, the model is auto-selected from the team's routing table."),
+    taskComplexity: z.enum(["low", "medium", "high"]).optional().describe("Task complexity level for smart model routing. low=coordination/simple tasks, medium=standard coding, high=architecture/complex debugging."),
   },
-  async ({ name, prompt }) => {
+  async ({ name, prompt, model, taskComplexity }) => {
     try {
       const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/agents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, prompt }),
+        body: JSON.stringify({ name, prompt, model, taskComplexity }),
       });
       const data = await res.json();
       if (!res.ok) {
         return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
       }
+      const modelInfo = data.model ? ` (model: ${data.model})` : "";
       return {
-        content: [{ type: "text", text: `Agent "${data.name}" spawned with ID: ${data.id}` }],
+        content: [{ type: "text", text: `Agent "${data.name}" spawned with ID: ${data.id}${modelInfo}` }],
       };
     } catch (err) {
       return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
@@ -151,19 +154,20 @@ server.tool(
 
 server.tool(
   "create_task",
-  "Create a new task on the team's task board. Use this to break down work into trackable units. Tasks can have dependencies on other tasks.",
+  "Create a new task on the team's task board. Use this to break down work into trackable units. Tasks can have dependencies on other tasks. Set complexity for smart model routing: low=coordination/status checks, medium=standard coding, high=architecture/complex debugging.",
   {
     title: z.string().describe("Short title for the task"),
     description: z.string().optional().describe("Detailed description of what needs to be done"),
+    complexity: z.enum(["low", "medium", "high"]).optional().describe("Task complexity for smart model routing. low=coordination/simple reads, medium=standard coding/reviews, high=architecture/complex debugging/multi-file refactors. Defaults to medium."),
     dependsOn: z.array(z.string()).optional().describe("Array of task IDs that must be completed before this task can be claimed"),
     fromAgentId: z.string().optional().describe("Your own session ID (for tracking who created the task)"),
   },
-  async ({ title, description, dependsOn, fromAgentId }) => {
+  async ({ title, description, complexity, dependsOn, fromAgentId }) => {
     try {
       const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, dependsOn, createdBy: fromAgentId }),
+        body: JSON.stringify({ title, description, complexity, dependsOn, createdBy: fromAgentId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -284,9 +288,10 @@ server.tool(
       const formatted = data.tasks.map((t) => {
         const deps = t.dependsOn.length > 0 ? ` (depends on: ${t.dependsOn.join(", ")})` : "";
         const assignee = t.assignedToName ? ` → ${t.assignedToName}` : "";
+        const complexity = t.complexity ? ` [${t.complexity}]` : "";
         const result = t.result ? `\n  Result: ${t.result}` : "";
         const fail = t.failReason ? `\n  Reason: ${t.failReason}` : "";
-        return `[${t.status.toUpperCase()}] ${t.title} (${t.id})${assignee}${deps}${result}${fail}\n  ${t.description || "(no description)"}`;
+        return `[${t.status.toUpperCase()}]${complexity} ${t.title} (${t.id})${assignee}${deps}${result}${fail}\n  ${t.description || "(no description)"}`;
       }).join("\n\n");
       return {
         content: [{ type: "text", text: `${data.tasks.length} task(s):\n\n${formatted}\n\nSummary: ${JSON.stringify(data.summary)}` }],

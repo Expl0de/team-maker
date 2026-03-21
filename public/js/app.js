@@ -1088,6 +1088,17 @@ function renderTasksPanel(tasks, summary) {
 }
 
 function renderTaskSummaryHTML(summary) {
+  // Check if the active team has model routing enabled
+  let routingHtml = "";
+  if (activeTeamId) {
+    const teamData = teams.get(activeTeamId);
+    if (teamData && teamData.modelRouting) {
+      const low = modelLabel(teamData.modelRouting.low) || "?";
+      const med = modelLabel(teamData.modelRouting.medium) || "?";
+      const high = modelLabel(teamData.modelRouting.high) || "?";
+      routingHtml = `<span class="tasks-summary-routing" title="Smart model routing active: Low→${low}, Medium→${med}, High→${high}">🧠 ${low} / ${med} / ${high}</span>`;
+    }
+  }
   return `
     <div class="tasks-summary">
       <span class="tasks-summary-item pending">${summary.pending} pending</span>
@@ -1095,6 +1106,7 @@ function renderTaskSummaryHTML(summary) {
       <span class="tasks-summary-item completed">${summary.completed} done</span>
       <span class="tasks-summary-item failed">${summary.failed} failed</span>
       <span class="tasks-summary-total">${summary.total} total</span>
+      ${routingHtml}
     </div>
   `;
 }
@@ -1102,6 +1114,9 @@ function renderTaskSummaryHTML(summary) {
 function renderTaskCard(task) {
   const time = new Date(task.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const assignee = task.assignedToName ? `<span class="task-assignee">${escapeHtml(task.assignedToName)}</span>` : "";
+  const complexity = task.complexity
+    ? `<span class="task-complexity complexity-${task.complexity}">${task.complexity}</span>`
+    : "";
   const desc = task.description
     ? `<div class="task-desc">${escapeHtml(task.description).slice(0, 200)}</div>`
     : "";
@@ -1123,7 +1138,7 @@ function renderTaskCard(task) {
       <span class="task-title">${escapeHtml(task.title)}</span>
       <span class="task-time">${time}</span>
     </div>
-    ${desc}${assignee}${deps}${result}${failReason}${retryBtn}
+    ${desc}${complexity}${assignee}${deps}${result}${failReason}${retryBtn}
   </div>`;
 }
 
@@ -2022,6 +2037,14 @@ function showNewTeamModal() {
   pathInput.value = "";
   promptInput.value = "";
   modelSelect.value = "";
+  // Reset model routing toggle
+  const routingCheckbox = document.getElementById("model-routing-enabled");
+  const routingConfig = document.getElementById("model-routing-config");
+  routingCheckbox.checked = false;
+  routingConfig.style.display = "none";
+  document.getElementById("routing-low").value = "claude-haiku-4-5-20251001";
+  document.getElementById("routing-medium").value = "claude-sonnet-4-6";
+  document.getElementById("routing-high").value = "claude-opus-4-6";
   // Init with default 4 roles
   currentRoles = builtinRoles.map((r) => ({ ...r }));
   editingRoleIndex = -1;
@@ -2071,6 +2094,14 @@ async function createNewTeam() {
   const roles = currentRoles.length > 0 ? currentRoles : undefined;
   const model = modelSelect.value || undefined;
 
+  // Collect model routing config if enabled
+  const routingEnabled = document.getElementById("model-routing-enabled").checked;
+  const modelRouting = routingEnabled ? {
+    low: document.getElementById("routing-low").value,
+    medium: document.getElementById("routing-medium").value,
+    high: document.getElementById("routing-high").value,
+  } : undefined;
+
   if (!name) { teamNameInput.focus(); return; }
   if (!prompt) { promptInput.focus(); return; }
 
@@ -2082,7 +2113,7 @@ async function createNewTeam() {
     const res = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, cwd, prompt, roles, model }),
+      body: JSON.stringify({ name, cwd, prompt, roles, model, modelRouting }),
     });
     const data = await res.json();
 
@@ -2091,6 +2122,7 @@ async function createNewTeam() {
       id: data.team.id,
       name: data.team.name,
       agentIds: data.team.agentIds,
+      modelRouting: data.team.modelRouting || null,
     };
     teams.set(team.id, team);
 
@@ -2243,6 +2275,7 @@ async function loadExistingTeams() {
         id: teamData.id,
         name: teamData.name,
         agentIds: teamData.agentIds,
+        modelRouting: teamData.modelRouting || null,
         status: teamData.status || "running",
       };
       teams.set(team.id, team);
@@ -2308,6 +2341,11 @@ setInterval(async () => {
 document.getElementById("usage-btn").addEventListener("click", () => {
   if (!activeTeamId) return;
   switchToUsageTab();
+});
+
+// Model routing toggle
+document.getElementById("model-routing-enabled").addEventListener("change", (e) => {
+  document.getElementById("model-routing-config").style.display = e.target.checked ? "" : "none";
 });
 
 // Team modal

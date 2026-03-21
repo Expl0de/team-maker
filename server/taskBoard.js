@@ -7,6 +7,7 @@ import stateStore from "./stateStore.js";
  * Task schema:
  * {
  *   id, title, description, status,
+ *   complexity,       // "low" | "medium" | "high" (for smart model routing)
  *   assignedTo,       // agentId (session ID)
  *   assignedToName,   // human-readable agent name
  *   dependsOn[],      // array of task IDs that must be completed first
@@ -46,12 +47,14 @@ class TaskBoard {
   /**
    * Create a new task on the board.
    */
-  createTask({ title, description, dependsOn, createdBy, createdByName, teamId }) {
+  createTask({ title, description, complexity, dependsOn, createdBy, createdByName, teamId }) {
+    const validComplexity = ["low", "medium", "high"];
     const task = {
       id: randomUUID(),
       title,
       description: description || "",
       status: "pending",
+      complexity: validComplexity.includes(complexity) ? complexity : "medium",
       assignedTo: null,
       assignedToName: null,
       dependsOn: dependsOn || [],
@@ -232,6 +235,16 @@ class TaskBoard {
       this._tasks.delete(id);
       stateStore.delete(`tasks.${id}`);
     }
+  }
+
+  /**
+   * Get the recommended model for a task based on a routing table.
+   * Returns the model string or null (use default).
+   */
+  getRecommendedModel(taskId, modelRouting) {
+    const task = this._tasks.get(taskId);
+    if (!task || !modelRouting) return null;
+    return modelRouting[task.complexity] || null;
   }
 
   /**

@@ -123,9 +123,9 @@ app.get("/api/builtin-roles", (req, res) => {
 
 // Team API
 app.post("/api/teams", (req, res) => {
-  const { name, cwd, prompt, roles, model } = req.body || {};
+  const { name, cwd, prompt, roles, model, modelRouting } = req.body || {};
   if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
-  const { team, session } = teamManager.create({ name, cwd, prompt, roles, model });
+  const { team, session } = teamManager.create({ name, cwd, prompt, roles, model, modelRouting });
   broadcast({ type: "team-update", teamId: team.id, event: "team-created", team: team.toJSON(), agent: session.toJSON() });
   res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
 });
@@ -159,10 +159,29 @@ app.post("/api/teams/:teamId/relaunch", (req, res) => {
   res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
 });
 
+// Model routing configuration
+app.get("/api/teams/:teamId/model-routing", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  res.json({
+    modelRouting: team.modelRouting,
+    defaults: { low: "claude-haiku-4-5-20251001", medium: "claude-sonnet-4-6", high: "claude-opus-4-6" },
+  });
+});
+
+app.put("/api/teams/:teamId/model-routing", (req, res) => {
+  const { modelRouting } = req.body || {};
+  if (!modelRouting) return res.status(400).json({ error: "modelRouting is required" });
+  const team = teamManager.updateModelRouting(req.params.teamId, modelRouting);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  broadcast({ type: "team-update", teamId: req.params.teamId, event: "model-routing-updated", modelRouting: team.modelRouting });
+  res.json({ ok: true, modelRouting: team.modelRouting });
+});
+
 app.post("/api/teams/:teamId/agents", (req, res) => {
-  const { name, prompt, model } = req.body || {};
+  const { name, prompt, model, taskComplexity } = req.body || {};
   if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
-  const session = teamManager.addAgent({ teamId: req.params.teamId, name, prompt, model });
+  const session = teamManager.addAgent({ teamId: req.params.teamId, name, prompt, model, taskComplexity });
   if (!session) return res.status(404).json({ error: "Team not found" });
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "agent-added", agent: session.toJSON() });
   res.json(session.toJSON());
@@ -406,13 +425,14 @@ app.post("/api/teams/:teamId/tasks", (req, res) => {
   const team = teamManager.get(req.params.teamId);
   if (!team) return res.status(404).json({ error: "Team not found" });
 
-  const { title, description, dependsOn, createdBy } = req.body || {};
+  const { title, description, complexity, dependsOn, createdBy } = req.body || {};
   if (!title) return res.status(400).json({ error: "title is required" });
 
   const createdByName = createdBy ? (sessionManager.get(createdBy)?.name || createdBy) : null;
   const task = taskBoard.createTask({
     title,
     description,
+    complexity,
     dependsOn,
     createdBy,
     createdByName,
@@ -687,6 +707,7 @@ function onShutdown() {
         roles: team.roles,
         sessionId: team.sessionId,
         model: team.model,
+        modelRouting: team.modelRouting,
         mainAgentId: team.mainAgentId,
         agentCounter: t?.agentCounter || 0,
         createdAt: team.createdAt,

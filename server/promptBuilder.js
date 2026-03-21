@@ -44,7 +44,7 @@ Your session ID is: \`${orchestratorSessionId}\`
 You have these MCP tools to manage your team:
 
 ### Agent Management
-- \`spawn_agent(name, prompt)\` — spawn a new agent in your team
+- \`spawn_agent(name, prompt, model?, taskComplexity?)\` — spawn a new agent. Use \`taskComplexity\` (\`"low"\`/\`"medium"\`/\`"high"\`) to auto-select the model via the team's routing table. Or pass \`model\` directly to override.
 - \`list_agents()\` — list all agents with their session IDs and status
 
 ### Messaging
@@ -53,7 +53,10 @@ You have these MCP tools to manage your team:
 - \`mark_read(messageId, agentId?)\` — mark a message as read after processing. Use \`messageId="all"\` with your agentId to mark all read.
 
 ### Task Board
-- \`create_task(title, description?, dependsOn?, fromAgentId?)\` — create a task on the board. Use \`dependsOn\` (array of task IDs) for tasks that must wait.
+- \`create_task(title, description?, complexity?, dependsOn?, fromAgentId?)\` — create a task on the board. Set \`complexity\` for smart model routing:
+  - \`"low"\` — coordination, status checks, simple file reads (routes to Haiku)
+  - \`"medium"\` — standard coding tasks, reviews (routes to Sonnet) — **default**
+  - \`"high"\` — architecture decisions, complex debugging, multi-file refactors (routes to Opus)
 - \`claim_task(taskId, agentId)\` — assign a pending task to yourself or to an agent. Dependencies must be completed first.
 - \`complete_task(taskId, agentId, result)\` — mark a task done with a summary of what was accomplished.
 - \`fail_task(taskId, agentId, reason)\` — mark a task as failed so it can be reassigned.
@@ -86,11 +89,16 @@ Analyze the user's request and break it down into concrete tasks using \`create_
 - **Specific**: clear deliverable, not vague
 - **Assignable**: mapped to one of the agent roles below
 - **Ordered**: use \`dependsOn\` when a task requires another to finish first
+- **Complexity-tagged**: set \`complexity\` to control which model handles the task:
+  - \`"low"\` — coordination, status updates, simple file reads → Haiku (cheapest)
+  - \`"medium"\` — standard coding, code reviews, testing → Sonnet (default)
+  - \`"high"\` — architecture planning, complex debugging, multi-file refactors → Opus (most capable)
 
 Example workflow:
-1. \`create_task(title="Analyze codebase architecture", description="...")\` → returns task ID
-2. \`create_task(title="Implement auth module", description="...", dependsOn=["<task-1-id>"])\`
-3. \`create_task(title="Write auth tests", description="...", dependsOn=["<task-2-id>"])\`
+1. \`create_task(title="Analyze codebase architecture", description="...", complexity="high")\` → returns task ID
+2. \`create_task(title="Implement auth module", description="...", complexity="medium", dependsOn=["<task-1-id>"])\`
+3. \`create_task(title="Write auth tests", description="...", complexity="medium", dependsOn=["<task-2-id>"])\`
+4. \`create_task(title="Update README", description="...", complexity="low", dependsOn=["<task-2-id>"])\`
 
 ---
 
@@ -99,8 +107,8 @@ Example workflow:
 **Do NOT spawn all agents upfront.** Only spawn an agent when you have a concrete task ready to assign to them. Idle agents waste resources.
 
 Spawn order strategy:
-1. Create all tasks first (Step 2)
-2. Spawn the agent needed for the first task(s) that have no dependencies
+1. Create all tasks first (Step 2) — always set \`complexity\` on each task
+2. Spawn the agent needed for the first task(s) that have no dependencies — pass \`taskComplexity\` matching the task's complexity level so the right model is selected automatically
 3. As tasks complete, spawn additional agents only when their tasks are unblocked
 4. If a role has no tasks, don't spawn that agent at all
 
