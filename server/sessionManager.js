@@ -1,14 +1,16 @@
 import pty from "node-pty";
 import { v4 as uuidv4 } from "uuid";
-import { readFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
+import { JsonlWatcher } from "./jsonlParser.js";
 
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
+const MAX_EVENTS = 500; // max structured events kept per session
 const PLAIN_BUFFER_SIZE = 2048; // rolling buffer for pattern detection
-const JSONL_POLL_INTERVAL = 5000; // read JSONL logs every 5 seconds
 const PROMPT_INJECT_TIMEOUT = 15000; // fallback timeout if ready signal not detected
 const PROMPT_SETTLE_DELAY = 300; // delay between paste and Enter after ready detected
+const IDLE_WARN_MS = 5 * 60 * 1000; // 5 minutes idle → warning
+const IDLE_KILL_MS = 10 * 60 * 1000; // 10 minutes idle → auto-kill
 
 // Strip ANSI escape sequences and control characters from terminal data
 function stripAnsi(str) {
@@ -36,50 +38,10 @@ function getJsonlPath(cwd, sessionId) {
   return join(homedir(), ".claude", "projects", projectHash, `${sessionId}.jsonl`);
 }
 
-/**
- * Parse a Claude Code JSONL log file and aggregate token usage from assistant messages.
- * Each assistant message has a message.usage object with structured token counts.
- */
-async function parseJsonlUsage(filePath) {
-  const usage = {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: 0,
-  };
-
-  let content;
-  try {
-    content = await readFile(filePath, "utf-8");
-  } catch {
-    return usage; // File doesn't exist yet or can't be read
-  }
-
-  const lines = content.trim().split("\n");
-  for (const line of lines) {
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    if (entry.type !== "assistant" || !entry.message?.usage) continue;
-
-    const u = entry.message.usage;
-    usage.inputTokens += u.input_tokens || 0;
-    usage.outputTokens += u.output_tokens || 0;
-    usage.cacheRead += u.cache_read_input_tokens || 0;
-    usage.cacheWrite += u.cache_creation_input_tokens || 0;
-  }
-
-  usage.totalTokens = usage.inputTokens + usage.outputTokens + usage.cacheRead + usage.cacheWrite;
-  return usage;
-}
-
-// Patterns that indicate Claude Code is asking a question / waiting for input
+// PTY-based question detection (legacy fallback for permission prompts).
+// Permission dialogs are CLI-internal TUI elements not logged in JSONL,
+// so PTY regex matching remains necessary for these. JSONL-based state
+// tracking (AP3) handles all other agent state (working/idle/tool_calling).
 const QUESTION_PATTERNS = [
   /do you want/i,
   /allow once/i,
@@ -118,7 +80,23 @@ class Session {
     // is at a predictable path: ~/.claude/projects/<project-hash>/<id>.jsonl
     this._jsonlPath = getJsonlPath(cwd || process.env.HOME, id);
     console.log(`[Session ${id}] JSONL path: ${this._jsonlPath}`);
-    this._jsonlTimer = null; // periodic JSONL polling timer
+
+    // Structured event log from JSONL (AP3 control plane)
+    this._events = []; // circular buffer of structured events
+    this._eventListeners = new Set(); // callbacks for real-time event broadcast
+    this._agentState = "starting"; // starting | working | idle | tool_calling | completed
+    this._lastToolCall = null; // most recent tool call for display
+
+    // Idle timeout tracking (AP5-A: auto-kill idle agents)
+    this._idleStartTime = null; // when agent entered idle state
+    this._idleWarned = false; // whether we've sent the 5min warning
+    this._idleCheckTimer = null; // periodic idle check interval
+    this._idleListeners = new Set(); // callbacks for idle events (warning/kill)
+
+    // JSONL watcher replaces interval-based polling — watches file for appends
+    this._jsonlWatcher = new JsonlWatcher(this._jsonlPath, (event) => {
+      this._handleJsonlEvent(event);
+    });
 
     const claudePath = process.env.CLAUDE_PATH || "/Users/tung/.local/bin/claude";
     const args = ["--session-id", id];
@@ -147,6 +125,7 @@ class Session {
     // Start health-check ping for team agents (rare, only for stuck detection)
     if (teamId) {
       this._startHealthCheck();
+      this._startIdleCheck();
     }
 
     this.pty.onData((data) => {
@@ -175,9 +154,9 @@ class Session {
         this._plainBuffer = this._plainBuffer.slice(-PLAIN_BUFFER_SIZE);
       }
 
-      // Start JSONL polling on first output (Claude CLI has started)
-      if (!this._jsonlTimer) {
-        this._startJsonlPolling();
+      // Start JSONL watcher on first output (Claude CLI has started)
+      if (!this._jsonlWatcher._pollTimer) {
+        this._jsonlWatcher.start();
       }
 
       // Check for question/dialog patterns (debounced to 3s)
@@ -206,18 +185,11 @@ class Session {
     this.pty.onExit(({ exitCode }) => {
       this.status = "exited";
       this.exitCode = exitCode;
-      // Final JSONL read to capture last usage before exit
-      if (this._jsonlTimer) {
-        clearInterval(this._jsonlTimer);
-        this._jsonlTimer = null;
-      }
-      parseJsonlUsage(this._jsonlPath).then((usage) => {
-        this.tokenUsage.inputTokens = usage.inputTokens;
-        this.tokenUsage.outputTokens = usage.outputTokens;
-        this.tokenUsage.cacheRead = usage.cacheRead;
-        this.tokenUsage.cacheWrite = usage.cacheWrite;
-        this.tokenUsage.totalTokens = usage.totalTokens;
-      }).catch(() => {});
+      this._agentState = "completed";
+      // Final JSONL read to capture last events before exit
+      this._jsonlWatcher.stop();
+      // Do one last read to capture anything written just before exit
+      this._jsonlWatcher._readNewLines().catch(() => {});
       for (const ws of this.clients) {
         try {
           ws.send(JSON.stringify({ type: "exit", exitCode }));
@@ -290,23 +262,100 @@ class Session {
     });
   }
 
-  _startJsonlPolling() {
-    // Poll the JSONL log file periodically to update token usage
-    const poll = async () => {
-      try {
-        const usage = await parseJsonlUsage(this._jsonlPath);
-        this.tokenUsage.inputTokens = usage.inputTokens;
-        this.tokenUsage.outputTokens = usage.outputTokens;
-        this.tokenUsage.cacheRead = usage.cacheRead;
-        this.tokenUsage.cacheWrite = usage.cacheWrite;
-        this.tokenUsage.totalTokens = usage.totalTokens;
-        // cost stays 0 — JSONL doesn't include dollar amounts
-      } catch {
-        // Ignore read errors — file may not exist yet
-      }
+  /**
+   * Handle a structured event from the JSONL watcher.
+   * Updates token usage, agent state, and broadcasts to listeners.
+   */
+  _handleJsonlEvent(event) {
+    // Update token usage from JSONL (replaces interval-based polling)
+    if (event.type === "usage") {
+      this.tokenUsage.inputTokens += event.inputTokens;
+      this.tokenUsage.outputTokens += event.outputTokens;
+      this.tokenUsage.cacheRead += event.cacheRead;
+      this.tokenUsage.cacheWrite += event.cacheWrite;
+      this.tokenUsage.totalTokens =
+        this.tokenUsage.inputTokens +
+        this.tokenUsage.outputTokens +
+        this.tokenUsage.cacheRead +
+        this.tokenUsage.cacheWrite;
+      // Don't store usage events in the event log — they're internal
+      return;
+    }
+
+    // Update agent state based on event type
+    const prevState = this._agentState;
+    switch (event.type) {
+      case "tool_call":
+        this._agentState = "tool_calling";
+        this._lastToolCall = { name: event.toolName, input: event.input };
+        break;
+      case "tool_result":
+        this._agentState = "working";
+        break;
+      case "assistant_message":
+        this._agentState = "working";
+        break;
+      case "turn_complete":
+        this._agentState = "idle";
+        break;
+      case "thinking":
+        this._agentState = "thinking";
+        break;
+    }
+
+    // Track idle start time for AP5-A idle timeout
+    if (this._agentState === "idle" && prevState !== "idle") {
+      this._idleStartTime = Date.now();
+      this._idleWarned = false;
+    } else if (this._agentState !== "idle") {
+      this._idleStartTime = null;
+      this._idleWarned = false;
+    }
+
+    // Tag the event with session metadata
+    const taggedEvent = {
+      ...event,
+      sessionId: this.id,
+      sessionName: this.name,
+      teamId: this.teamId,
+      agentState: this._agentState,
     };
-    poll(); // Run immediately
-    this._jsonlTimer = setInterval(poll, JSONL_POLL_INTERVAL);
+
+    // Store in circular buffer
+    this._events.push(taggedEvent);
+    if (this._events.length > MAX_EVENTS) {
+      this._events.shift();
+    }
+
+    // Broadcast to listeners (WebSocket clients)
+    for (const listener of this._eventListeners) {
+      try {
+        listener(taggedEvent);
+      } catch {}
+    }
+
+    // Broadcast state change
+    if (this._agentState !== prevState) {
+      for (const ws of this.clients) {
+        try {
+          ws.send(JSON.stringify({
+            type: "agent_state",
+            sessionId: this.id,
+            state: this._agentState,
+            lastToolCall: this._lastToolCall,
+          }));
+        } catch {}
+      }
+    }
+  }
+
+  onEvent(listener) {
+    this._eventListeners.add(listener);
+    return () => this._eventListeners.delete(listener);
+  }
+
+  getEvents() {
+    return this._events;
   }
 
   _broadcastStatus() {
@@ -346,6 +395,49 @@ class Session {
     }, startDelay);
   }
 
+  _startIdleCheck() {
+    // Check every 30s if this agent has been idle too long.
+    // Only applies to sub-agents (role === "agent"), not the orchestrator.
+    const CHECK_INTERVAL = 30 * 1000;
+    const startDelay = 2 * 60 * 1000; // 2min — let agent finish initial prompt
+    setTimeout(() => {
+      if (this.status !== "running") return;
+      this._idleCheckTimer = setInterval(() => {
+        if (this.status !== "running" || this.role !== "agent") {
+          clearInterval(this._idleCheckTimer);
+          this._idleCheckTimer = null;
+          return;
+        }
+        if (!this._idleStartTime) return;
+
+        const idleMs = Date.now() - this._idleStartTime;
+
+        if (idleMs >= IDLE_KILL_MS) {
+          // Auto-kill after 10 minutes idle
+          console.log(`[Session ${this.id}] Auto-killing after ${Math.round(idleMs / 1000)}s idle`);
+          clearInterval(this._idleCheckTimer);
+          this._idleCheckTimer = null;
+          for (const listener of this._idleListeners) {
+            try { listener({ type: "agent_idle_killed", sessionId: this.id, sessionName: this.name, teamId: this.teamId, idleMs }); } catch {}
+          }
+          this.kill();
+        } else if (idleMs >= IDLE_WARN_MS && !this._idleWarned) {
+          // Warn at 5 minutes idle
+          this._idleWarned = true;
+          console.log(`[Session ${this.id}] Idle warning after ${Math.round(idleMs / 1000)}s`);
+          for (const listener of this._idleListeners) {
+            try { listener({ type: "agent_idle_warning", sessionId: this.id, sessionName: this.name, teamId: this.teamId, idleMs }); } catch {}
+          }
+        }
+      }, CHECK_INTERVAL);
+    }, startDelay);
+  }
+
+  onIdleEvent(listener) {
+    this._idleListeners.add(listener);
+    return () => this._idleListeners.delete(listener);
+  }
+
   write(data) {
     if (this.status === "running") {
       this.usage.bytesIn += data.length;
@@ -379,10 +471,11 @@ class Session {
         clearInterval(this._healthCheckInterval);
         this._healthCheckInterval = null;
       }
-      if (this._jsonlTimer) {
-        clearInterval(this._jsonlTimer);
-        this._jsonlTimer = null;
+      if (this._idleCheckTimer) {
+        clearInterval(this._idleCheckTimer);
+        this._idleCheckTimer = null;
       }
+      this._jsonlWatcher.stop();
       this.pty.kill();
       this.status = "exited";
     }
@@ -407,6 +500,8 @@ class Session {
       },
       tokenUsage: { ...this.tokenUsage },
       clientCount: this.clients.size,
+      agentState: this._agentState,
+      lastToolCall: this._lastToolCall,
     };
   }
 }
@@ -415,6 +510,25 @@ class SessionManager {
   constructor() {
     this.sessions = new Map();
     this.instanceCounter = 0;
+    this._eventListeners = new Set(); // global event listeners for all sessions
+    this._idleEventListeners = new Set(); // global idle event listeners (warning/kill)
+  }
+
+  /**
+   * Register a listener for agent events from ALL sessions.
+   * Listener receives (event) where event includes sessionId, teamId, etc.
+   */
+  onAgentEvent(listener) {
+    this._eventListeners.add(listener);
+    return () => this._eventListeners.delete(listener);
+  }
+
+  /**
+   * Register a listener for idle events (warning/kill) from ALL sessions.
+   */
+  onIdleEvent(listener) {
+    this._idleEventListeners.add(listener);
+    return () => this._idleEventListeners.delete(listener);
   }
 
   create({ name, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, model } = {}) {
@@ -423,6 +537,25 @@ class SessionManager {
     const sessionName = name || `Instance ${this.instanceCounter}`;
     const session = new Session({ id, name: sessionName, cwd, autoAccept, initialPrompt, teamId, role, agentIndex, mcpConfigPath, model });
     this.sessions.set(id, session);
+
+    // Wire up event forwarding to global listeners
+    session.onEvent((event) => {
+      for (const listener of this._eventListeners) {
+        try {
+          listener(event);
+        } catch {}
+      }
+    });
+
+    // Wire up idle event forwarding
+    session.onIdleEvent((event) => {
+      for (const listener of this._idleEventListeners) {
+        try {
+          listener(event);
+        } catch {}
+      }
+    });
+
     return session;
   }
 

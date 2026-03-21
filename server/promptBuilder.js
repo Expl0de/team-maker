@@ -18,7 +18,6 @@ export const EXTRA_ROLES = [
  * Build the full orchestrator prompt for Agent 0.
  */
 export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, roles, orchestratorSessionId }) {
-  const agentCount = roles.length;
   const roleBlocks = roles.map((role, i) => {
     const num = i + 1;
     return `**Agent ${num} (${role.title}): ${role.responsibility}**
@@ -60,6 +59,13 @@ You have these MCP tools to manage your team:
 - \`fail_task(taskId, agentId, reason)\` — mark a task as failed so it can be reassigned.
 - \`get_tasks(status?, assignedTo?)\` — view the current task board. Filter by status or assignee.
 
+### Shared Context Store
+- \`store_context(key, content, summary?, fromAgentId?)\` — share knowledge with the team. Use descriptive keys like "package.json-deps", "src-architecture".
+- \`query_context(query)\` — search shared knowledge by keywords. Returns full content of matching entries.
+- \`list_context()\` — list all shared context entries (keys + summaries). Use to discover what the team already knows.
+
+**Context sharing strategy**: After the first agent (typically the Architect) analyzes the codebase, have them \`store_context()\` their findings (project structure, key dependencies, architecture notes). This prevents every subsequent agent from re-reading the same files — saving significant tokens.
+
 ---
 
 ## Step 1: Initialize Session
@@ -88,9 +94,17 @@ Example workflow:
 
 ---
 
-## Step 3: Spawn Sub-Agents
+## Step 3: Spawn Sub-Agents On Demand
 
-Use the \`spawn_agent\` MCP tool to create each agent. Spawn all ${agentCount} agents:
+**Do NOT spawn all agents upfront.** Only spawn an agent when you have a concrete task ready to assign to them. Idle agents waste resources.
+
+Spawn order strategy:
+1. Create all tasks first (Step 2)
+2. Spawn the agent needed for the first task(s) that have no dependencies
+3. As tasks complete, spawn additional agents only when their tasks are unblocked
+4. If a role has no tasks, don't spawn that agent at all
+
+Available roles to spawn (use \`spawn_agent\` MCP tool):
 ${spawnInstructions}
 
 ### Sub-Agent Spawn Prompt Template
@@ -127,6 +141,13 @@ Use \`list_agents()\` to see all agents and find your own session ID. You need t
 - \`complete_task(taskId, agentId, result)\` — mark your task done with a summary
 - \`fail_task(taskId, agentId, reason)\` — report a failure so the orchestrator can reassign
 
+### Shared Context Store
+- \`list_context()\` — see what knowledge the team already has. **Check this BEFORE reading project files.**
+- \`query_context(query)\` — search for specific knowledge by keywords. Returns full content.
+- \`store_context(key, content, summary?, fromAgentId?)\` — share your findings with the team after analyzing files.
+
+**IMPORTANT**: Before reading project files, ALWAYS check \`list_context()\` first. If another agent already analyzed the files you need, use \`query_context()\` to get their findings instead of re-reading. After you complete analysis or read important files, use \`store_context()\` to share what you learned.
+
 ## How You Receive Work
 The orchestrator creates tasks on the task board and assigns them to you. Messages arrive via \`send_message\` — you do NOT need to poll.
 
@@ -148,7 +169,7 @@ You may create files inside \`.team-maker/${sessionId}/share/\` for cross-agent 
 
 ## Step 4: Assign Tasks to Agents
 
-After spawning agents, use \`send_message\` to tell each agent which task(s) to claim. Include the task ID so they can \`claim_task\` it.
+After spawning an agent, use \`send_message\` to tell it which task(s) to claim. Include the task ID so they can \`claim_task\` it. Only spawn the next agent when you have unblocked tasks for them.
 
 ---
 
@@ -161,9 +182,10 @@ After spawning agents, use \`send_message\` to tell each agent which task(s) to 
 5. **Coordinate work**: Use \`send_message\` to assign tasks, unblock agents, and relay information between agents.
 6. **Handle failures**: When a task fails, reassign it or create a new task to address the issue.
 7. **Communicate with the user**: You are the only agent that talks to the user directly. Relay relevant updates.
-8. **If user gives new instructions**: Create new tasks with \`create_task\`, then assign to appropriate agents via \`send_message\`.
+8. **If user gives new instructions**: Create new tasks with \`create_task\`, then assign to appropriate agents via \`send_message\`. Spawn a new agent only if no existing agent can handle the work.
 9. **Resolve blockers** by reassigning or escalating.
 10. **Once all tasks are completed** (check with \`get_tasks()\`), report final status to the user.
+11. **Resource efficiency**: Do NOT keep agents around if they have no more tasks. An idle agent with no pending work is wasting resources.
 
 ---
 

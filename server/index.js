@@ -10,6 +10,7 @@ import stateStore from "./stateStore.js";
 import * as templateStore from "./templateStore.js";
 import messageQueue from "./messageQueue.js";
 import taskBoard from "./taskBoard.js";
+import contextStore from "./contextStore.js";
 import { BUILTIN_ROLES, EXTRA_ROLES } from "./promptBuilder.js";
 
 // Initialize persistence layer
@@ -18,6 +19,7 @@ templateStore.migrateFromLegacy();
 teamManager.restoreFromState();
 messageQueue.restoreFromState();
 taskBoard.restoreFromState();
+contextStore.restoreFromState();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -142,6 +144,7 @@ app.delete("/api/teams/:teamId", (req, res) => {
   if (!destroyed) return res.status(404).json({ error: "Team not found" });
   messageQueue.clearTeam(req.params.teamId);
   taskBoard.clearTeam(req.params.teamId);
+  contextStore.clearTeam(req.params.teamId);
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "team-deleted" });
   res.json({ ok: true });
 });
@@ -273,6 +276,37 @@ app.get("/api/teams/:teamId/messages", (req, res) => {
   res.json(messages);
 });
 
+// --- Agent Events API (AP3: structured JSONL events) ---
+
+// Get structured agent events for a team
+app.get("/api/teams/:teamId/events", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const agents = teamManager.getAgents(req.params.teamId);
+  if (!agents) return res.json({ events: [] });
+
+  // Collect events from all agent sessions in this team
+  const allEvents = [];
+  for (const agentData of agents) {
+    const session = sessionManager.get(agentData.id);
+    if (session && session.getEvents) {
+      allEvents.push(...session.getEvents());
+    }
+  }
+
+  // Sort by timestamp and apply optional filters
+  allEvents.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+  const { type, sessionId, limit } = req.query;
+  let filtered = allEvents;
+  if (type) filtered = filtered.filter((e) => e.type === type);
+  if (sessionId) filtered = filtered.filter((e) => e.sessionId === sessionId);
+  if (limit) filtered = filtered.slice(-parseInt(limit, 10));
+
+  res.json({ events: filtered });
+});
+
 // --- Task Board API ---
 
 // Create a task
@@ -347,6 +381,96 @@ app.post("/api/teams/:teamId/tasks/:taskId/retry", (req, res) => {
   res.json({ task: out.task });
 });
 
+// --- Shared Context Store API ---
+
+// Store a context entry
+app.post("/api/teams/:teamId/context", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const { key, content, summary, storedBy } = req.body || {};
+  if (!key || !content) return res.status(400).json({ error: "key and content are required" });
+
+  const storedByName = storedBy ? (sessionManager.get(storedBy)?.name || storedBy) : null;
+  const entry = contextStore.store(key, content, summary, {
+    storedBy,
+    storedByName,
+    teamId: req.params.teamId,
+  });
+  res.json({ entry });
+});
+
+// List all context entries (keys + summaries, no full content)
+app.get("/api/teams/:teamId/context", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const entries = contextStore.list({ teamId: req.params.teamId });
+  const stats = contextStore.getStats(req.params.teamId);
+  res.json({ entries, stats });
+});
+
+// Query context by keywords (returns full content)
+app.get("/api/teams/:teamId/context/query", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: "q parameter is required" });
+
+  const results = contextStore.query(q, { teamId: req.params.teamId });
+  res.json({ results });
+});
+
+// Get a single context entry by key
+app.get("/api/teams/:teamId/context/:key", (req, res) => {
+  const entry = contextStore.get(req.params.key);
+  if (!entry || entry.teamId !== req.params.teamId) {
+    return res.status(404).json({ error: "Context entry not found" });
+  }
+  res.json({ entry });
+});
+
+// Delete a context entry
+app.delete("/api/teams/:teamId/context/:key", (req, res) => {
+  const deleted = contextStore.invalidate(req.params.key);
+  if (!deleted) return res.status(404).json({ error: "Context entry not found" });
+  res.json({ ok: true });
+});
+
+// Broadcast agent events (JSONL-sourced) over WebSocket for real-time UI updates
+sessionManager.onAgentEvent((event) => {
+  // Only broadcast events for team agents (not standalone sessions)
+  if (!event.teamId) return;
+  broadcast({
+    type: "agent-event",
+    teamId: event.teamId,
+    event,
+  });
+});
+
+// Broadcast idle events (warning/kill) over WebSocket for real-time UI updates
+sessionManager.onIdleEvent((event) => {
+  if (!event.teamId) return;
+  broadcast({
+    type: "agent-idle",
+    teamId: event.teamId,
+    event,
+  });
+
+  // If agent was killed, remove it from the team's agent list
+  if (event.type === "agent_idle_killed") {
+    const team = teamManager.get(event.teamId);
+    if (team) {
+      const idx = team.agentIds.indexOf(event.sessionId);
+      if (idx !== -1) {
+        team.agentIds.splice(idx, 1);
+        teamManager._persistTeam(team);
+      }
+    }
+  }
+});
+
 // Broadcast task events over WebSocket for real-time UI updates
 taskBoard.onTaskEvent((event, task) => {
   broadcast({
@@ -355,6 +479,25 @@ taskBoard.onTaskEvent((event, task) => {
     event,
     task,
   });
+});
+
+// Broadcast context store events over WebSocket for real-time UI updates
+contextStore.onContextEvent((event, data) => {
+  if (data && data.teamId) {
+    broadcast({
+      type: "team-context",
+      teamId: data.teamId,
+      event,
+      entry: {
+        key: data.key,
+        summary: data.summary,
+        storedByName: data.storedByName,
+        tokens: data.tokens,
+        accessCount: data.accessCount,
+        lastUpdated: data.lastUpdated,
+      },
+    });
+  }
 });
 
 // Broadcast new messages over WebSocket for real-time UI updates

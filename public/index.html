@@ -44,6 +44,31 @@
             <div class="tasks-empty">No tasks yet</div>
           </div>
         </div>
+        <div id="events-panel" class="terminal-wrapper">
+          <div id="events-panel-header">
+            <div class="events-filters">
+              <select id="events-filter-type">
+                <option value="">All events</option>
+                <option value="tool_call">Tool calls</option>
+                <option value="tool_result">Tool results</option>
+                <option value="assistant_message">Messages</option>
+                <option value="turn_complete">Completions</option>
+                <option value="thinking">Thinking</option>
+              </select>
+              <select id="events-filter-agent">
+                <option value="">All agents</option>
+              </select>
+            </div>
+          </div>
+          <div id="events-panel-content">
+            <div class="events-empty">No events yet</div>
+          </div>
+        </div>
+        <div id="context-panel" class="terminal-wrapper">
+          <div id="context-panel-content">
+            <div class="context-empty">No shared context yet</div>
+          </div>
+        </div>
       </main>
     </div>
   </div>

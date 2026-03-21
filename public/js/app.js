@@ -15,6 +15,15 @@ const teamMessages = new Map(); // teamId -> message[]
 let tasksTabActive = false;
 const teamTasks = new Map(); // teamId -> task[]
 
+// Context tab state (AP5-B: shared context store)
+let contextTabActive = false;
+const teamContexts = new Map(); // teamId -> entry[]
+
+// Events tab state (AP3: structured JSONL events)
+let eventsTabActive = false;
+const teamEvents = new Map(); // teamId -> event[]
+const agentStates = new Map(); // sessionId -> { state, lastToolCall }
+
 // Role editor state
 let currentRoles = [];
 let editingRoleIndex = -1;
@@ -398,25 +407,51 @@ function selectTeam(teamId) {
     tasksTab.style.display = "none";
   }
 
+  // Show/hide events tab
+  const eventsTab = tabBar.querySelector(".tab-events");
+  if (teamId) {
+    if (!eventsTab) {
+      createEventsTab();
+    } else {
+      eventsTab.style.display = "";
+    }
+  } else if (eventsTab) {
+    eventsTab.style.display = "none";
+  }
+
+  // Show/hide context tab
+  const contextTab = tabBar.querySelector(".tab-context");
+  if (teamId) {
+    if (!contextTab) {
+      createContextTab();
+    } else {
+      contextTab.style.display = "";
+    }
+  } else if (contextTab) {
+    contextTab.style.display = "none";
+  }
+
   // Show only tabs for this team, hide others
-  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks)").forEach((t) => {
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context)").forEach((t) => {
     const session = sessions.get(t.dataset.id);
     t.style.display = (session && session.teamId === teamId) ? "" : "none";
   });
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#context-panel)").forEach((w) => {
     const session = sessions.get(w.dataset.id);
     if (!session || session.teamId !== teamId) {
       w.classList.remove("active");
     }
   });
 
-  // If usage/messages/tasks tab was active, keep it; otherwise switch to an agent tab
+  // If usage/messages/tasks/context tab was active, keep it; otherwise switch to an agent tab
   if (usageTabActive) {
     switchToUsageTab();
   } else if (tasksTabActive) {
     switchToTasksTab();
   } else if (messagesTabActive) {
     switchToMessagesTab();
+  } else if (contextTabActive) {
+    switchToContextTab();
   } else {
     // Switch to the first visible tab in this team, or the active one if it belongs
     const team = teams.get(teamId);
@@ -538,6 +573,26 @@ function attachSession(data) {
           handleTeamTaskEvent(msg);
           return;
         }
+        // Handle agent event broadcasts (AP3)
+        if (msg.type === "agent-event") {
+          handleAgentEvent(msg);
+          return;
+        }
+        // Handle agent state changes (AP3)
+        if (msg.type === "agent_state") {
+          handleAgentState(msg);
+          return;
+        }
+        // Handle agent idle events (AP5-A)
+        if (msg.type === "agent-idle") {
+          handleAgentIdleEvent(msg);
+          return;
+        }
+        // Handle context store events (AP5-B)
+        if (msg.type === "team-context") {
+          handleTeamContextEvent(msg);
+          return;
+        }
       } catch {
         // Not JSON — terminal data
       }
@@ -605,6 +660,22 @@ function reconnect(sessionId) {
           handleTeamMessage(msg);
           return;
         }
+        if (msg.type === "agent-event") {
+          handleAgentEvent(msg);
+          return;
+        }
+        if (msg.type === "agent_state") {
+          handleAgentState(msg);
+          return;
+        }
+        if (msg.type === "agent-idle") {
+          handleAgentIdleEvent(msg);
+          return;
+        }
+        if (msg.type === "team-context") {
+          handleTeamContextEvent(msg);
+          return;
+        }
         if (msg.type === "attached" || msg.type === "error") return;
       } catch {}
     }
@@ -629,6 +700,8 @@ function switchTab(sessionId) {
   usageTabActive = false;
   messagesTabActive = false;
   tasksTabActive = false;
+  eventsTabActive = false;
+  contextTabActive = false;
 
   // Deactivate usage tab and panel
   const usageTab = tabBar.querySelector(".tab-usage");
@@ -646,11 +719,21 @@ function switchTab(sessionId) {
   if (tasksTab) tasksTab.classList.remove("active");
   document.getElementById("tasks-panel").classList.remove("active");
 
-  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks)").forEach((t) => {
+  // Deactivate events tab and panel
+  const eventsTab = tabBar.querySelector(".tab-events");
+  if (eventsTab) eventsTab.classList.remove("active");
+  document.getElementById("events-panel").classList.remove("active");
+
+  // Deactivate context tab and panel
+  const contextTab = tabBar.querySelector(".tab-context");
+  if (contextTab) contextTab.classList.remove("active");
+  document.getElementById("context-panel").classList.remove("active");
+
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context)").forEach((t) => {
     t.classList.toggle("active", t.dataset.id === sessionId);
   });
 
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#events-panel):not(#context-panel)").forEach((w) => {
     w.classList.toggle("active", w.dataset.id === sessionId);
   });
 
@@ -688,9 +771,10 @@ function switchToUsageTab() {
   usageTabActive = true;
   messagesTabActive = false;
   tasksTabActive = false;
+  eventsTabActive = false;
   activeSessionId = null;
 
-  // Deactivate all agent tabs, messages tab, tasks tab, and wrappers
+  // Deactivate all agent tabs, messages tab, tasks tab, events tab, and wrappers
   tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => t.classList.remove("active"));
   terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => w.classList.remove("active"));
 
@@ -730,6 +814,7 @@ function switchToMessagesTab() {
   messagesTabActive = true;
   usageTabActive = false;
   tasksTabActive = false;
+  eventsTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -881,6 +966,7 @@ function switchToTasksTab() {
   tasksTabActive = true;
   usageTabActive = false;
   messagesTabActive = false;
+  eventsTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1020,6 +1106,380 @@ function handleTeamTaskEvent(msg) {
   if (tasksTabActive && activeTeamId === teamId) {
     loadTeamTasks(teamId);
   }
+}
+
+// --- Events tab (AP3: structured JSONL events) ---
+
+function createEventsTab() {
+  const existing = tabBar.querySelector(".tab-events");
+  if (existing) existing.remove();
+
+  const tab = document.createElement("div");
+  tab.className = "tab tab-events";
+  tab.innerHTML = `<span class="events-tab-icon">⚡</span><span class="tab-name">Events</span>`;
+  tab.addEventListener("click", () => switchToEventsTab());
+
+  // Insert after tasks tab
+  const tasksTab = tabBar.querySelector(".tab-tasks");
+  if (tasksTab) {
+    tasksTab.after(tab);
+  } else {
+    const messagesTab = tabBar.querySelector(".tab-messages");
+    if (messagesTab) messagesTab.after(tab);
+    else tabBar.prepend(tab);
+  }
+  return tab;
+}
+
+function switchToEventsTab() {
+  eventsTabActive = true;
+  usageTabActive = false;
+  messagesTabActive = false;
+  tasksTabActive = false;
+  activeSessionId = null;
+
+  // Deactivate all other tabs and wrappers
+  tabBar.querySelectorAll(".tab:not(.tab-events)").forEach((t) => t.classList.remove("active"));
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#events-panel)").forEach((w) => w.classList.remove("active"));
+  stopUsageAutoRefresh();
+
+  // Activate events tab and panel
+  const eventsTab = tabBar.querySelector(".tab-events");
+  if (eventsTab) eventsTab.classList.add("active");
+  document.getElementById("events-panel").classList.add("active");
+  emptyState.style.display = "none";
+
+  // Load events
+  if (activeTeamId) {
+    loadTeamEvents(activeTeamId);
+  }
+}
+
+async function loadTeamEvents(teamId) {
+  try {
+    const res = await fetch(`/api/teams/${teamId}/events`);
+    const data = await res.json();
+    teamEvents.set(teamId, data.events);
+    renderEventsPanel(data.events);
+    populateEventsAgentFilter(teamId);
+  } catch {
+    renderEventsPanel([]);
+  }
+}
+
+function populateEventsAgentFilter(teamId) {
+  const select = document.getElementById("events-filter-agent");
+  const currentVal = select.value;
+  // Keep "All agents" option, rebuild the rest
+  select.innerHTML = '<option value="">All agents</option>';
+  const team = teams.get(teamId);
+  if (!team) return;
+  for (const agentId of team.agentIds) {
+    const session = sessions.get(agentId);
+    if (session) {
+      const opt = document.createElement("option");
+      opt.value = agentId;
+      opt.textContent = session.name;
+      select.appendChild(opt);
+    }
+  }
+  select.value = currentVal;
+}
+
+function getFilteredEvents(events) {
+  const typeFilter = document.getElementById("events-filter-type").value;
+  const agentFilter = document.getElementById("events-filter-agent").value;
+  let filtered = events;
+  if (typeFilter) filtered = filtered.filter((e) => e.type === typeFilter);
+  if (agentFilter) filtered = filtered.filter((e) => e.sessionId === agentFilter);
+  return filtered;
+}
+
+function renderEventsPanel(events) {
+  const panel = document.getElementById("events-panel-content");
+  const filtered = getFilteredEvents(events);
+
+  if (!filtered || filtered.length === 0) {
+    panel.innerHTML = '<div class="events-empty">No events yet</div>';
+    return;
+  }
+
+  panel.innerHTML = filtered.map((e) => renderEventItem(e)).join("");
+  // Auto-scroll to bottom
+  const eventsPanel = document.getElementById("events-panel");
+  eventsPanel.scrollTop = eventsPanel.scrollHeight;
+}
+
+function renderEventItem(event, isNew) {
+  const time = new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const agent = event.sessionName || "agent";
+  const icon = getEventIcon(event.type);
+  const body = getEventBody(event);
+  const errorClass = (event.type === "tool_result" && event.isError) ? " event-error" : "";
+
+  return `<div class="event-item event-${event.type}${errorClass}${isNew ? " event-new" : ""}">
+    <span class="event-time">${time}</span>
+    <span class="event-agent" title="${escapeHtml(agent)}">${escapeHtml(agent)}</span>
+    <span class="event-icon">${icon}</span>
+    <div class="event-body">${body}</div>
+  </div>`;
+}
+
+function getEventIcon(type) {
+  switch (type) {
+    case "tool_call": return "🔧";
+    case "tool_result": return "✓";
+    case "assistant_message": return "💬";
+    case "turn_complete": return "✅";
+    case "thinking": return "🧠";
+    default: return "·";
+  }
+}
+
+function getEventBody(event) {
+  switch (event.type) {
+    case "tool_call": {
+      const name = escapeHtml(event.toolName || "?");
+      let detail = "";
+      if (event.input) {
+        if (event.input.file_path) detail = event.input.file_path;
+        else if (event.input.command) detail = event.input.command;
+        else if (event.input.pattern) detail = `pattern: ${event.input.pattern}`;
+        else if (event.input.description) detail = event.input.description;
+      }
+      const detailHtml = detail ? `<div class="event-detail" title="${escapeHtml(detail)}">${escapeHtml(detail)}</div>` : "";
+      return `<span class="event-tool-name">${name}</span>${detailHtml}`;
+    }
+    case "tool_result": {
+      const status = event.isError ? "❌ Error" : "OK";
+      const preview = event.contentPreview ? escapeHtml(event.contentPreview).slice(0, 100) : "";
+      const detailHtml = preview ? `<div class="event-detail" title="${escapeHtml(event.contentPreview || "")}">${preview}</div>` : "";
+      return `${status}${detailHtml}`;
+    }
+    case "assistant_message": {
+      const text = escapeHtml(event.text || "").slice(0, 200);
+      return text;
+    }
+    case "turn_complete":
+      return `Turn complete${event.model ? ` (${event.model})` : ""}`;
+    case "thinking":
+      return `Thinking... (${event.length} chars)`;
+    default:
+      return event.type;
+  }
+}
+
+function handleAgentEvent(msg) {
+  const teamId = msg.teamId;
+  const event = msg.event;
+
+  // Store event
+  if (!teamEvents.has(teamId)) {
+    teamEvents.set(teamId, []);
+  }
+  teamEvents.get(teamId).push(event);
+
+  // If events panel is active and showing this team, append it
+  if (eventsTabActive && activeTeamId === teamId) {
+    const filtered = getFilteredEvents([event]);
+    if (filtered.length > 0) {
+      const panel = document.getElementById("events-panel-content");
+      const isEmpty = panel.querySelector(".events-empty");
+      if (isEmpty) panel.innerHTML = "";
+      panel.insertAdjacentHTML("beforeend", renderEventItem(event, true));
+      // Auto-scroll
+      const eventsPanel = document.getElementById("events-panel");
+      eventsPanel.scrollTop = eventsPanel.scrollHeight;
+    }
+  }
+}
+
+function handleAgentState(msg) {
+  const { sessionId, state, lastToolCall } = msg;
+  agentStates.set(sessionId, { state, lastToolCall });
+
+  // Update tab badge if session exists
+  const session = sessions.get(sessionId);
+  if (session && session.tabEl) {
+    let badge = session.tabEl.querySelector(".agent-state-badge");
+    if (state === "starting" || state === "idle") {
+      // Remove badge for non-interesting states
+      if (badge) badge.remove();
+    } else {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "agent-state-badge";
+        session.tabEl.querySelector(".tab-name").after(badge);
+      }
+      // Clear all state classes
+      badge.className = "agent-state-badge state-" + state;
+      badge.textContent = state === "tool_calling" ? (lastToolCall?.name || "tool") : state;
+    }
+  }
+}
+
+// --- Context tab (AP5-B: shared context store) ---
+
+function createContextTab() {
+  const existing = tabBar.querySelector(".tab-context");
+  if (existing) existing.remove();
+
+  const tab = document.createElement("div");
+  tab.className = "tab tab-context";
+  tab.innerHTML = `<span class="context-tab-icon">🧠</span><span class="tab-name">Context</span>`;
+  tab.addEventListener("click", () => switchToContextTab());
+
+  // Insert after events tab
+  const eventsTab = tabBar.querySelector(".tab-events");
+  if (eventsTab) {
+    eventsTab.after(tab);
+  } else {
+    const tasksTab = tabBar.querySelector(".tab-tasks");
+    if (tasksTab) tasksTab.after(tab);
+    else tabBar.prepend(tab);
+  }
+  return tab;
+}
+
+function switchToContextTab() {
+  contextTabActive = true;
+  usageTabActive = false;
+  messagesTabActive = false;
+  tasksTabActive = false;
+  eventsTabActive = false;
+  activeSessionId = null;
+
+  // Deactivate all other tabs and wrappers
+  tabBar.querySelectorAll(".tab:not(.tab-context)").forEach((t) => t.classList.remove("active"));
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#context-panel)").forEach((w) => w.classList.remove("active"));
+  stopUsageAutoRefresh();
+
+  // Activate context tab and panel
+  const contextTab = tabBar.querySelector(".tab-context");
+  if (contextTab) contextTab.classList.add("active");
+  document.getElementById("context-panel").classList.add("active");
+  emptyState.style.display = "none";
+
+  // Load context
+  if (activeTeamId) {
+    loadTeamContext(activeTeamId);
+  }
+}
+
+async function loadTeamContext(teamId) {
+  try {
+    const res = await fetch(`/api/teams/${teamId}/context`);
+    const data = await res.json();
+    teamContexts.set(teamId, data.entries);
+    renderContextPanel(data.entries, data.stats);
+  } catch {
+    renderContextPanel([], null);
+  }
+}
+
+function renderContextPanel(entries, stats) {
+  const panel = document.getElementById("context-panel-content");
+  if (!entries || entries.length === 0) {
+    panel.innerHTML = '<div class="context-empty">No shared context yet. Agents will store context here as they analyze the codebase.</div>';
+    return;
+  }
+
+  const statsHtml = stats ? `
+    <div class="context-stats">
+      <span class="context-stat">${stats.totalEntries} entries</span>
+      <span class="context-stat">${formatBytes(stats.totalBytes)} / ${formatBytes(stats.maxBytes)}</span>
+      <span class="context-stat">${stats.usagePercent}% used</span>
+    </div>
+  ` : "";
+
+  const entriesHtml = entries.map((e) => renderContextEntry(e)).join("");
+  panel.innerHTML = statsHtml + `<div class="context-entries">${entriesHtml}</div>`;
+}
+
+function renderContextEntry(entry) {
+  const time = new Date(entry.lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const storedBy = entry.storedByName ? escapeHtml(entry.storedByName) : "unknown";
+  const summary = entry.summary ? escapeHtml(entry.summary) : "(no summary)";
+
+  return `<div class="context-entry">
+    <div class="context-entry-header">
+      <span class="context-entry-key">${escapeHtml(entry.key)}</span>
+      <span class="context-entry-tokens">~${entry.tokens} tokens</span>
+    </div>
+    <div class="context-entry-summary">${summary}</div>
+    <div class="context-entry-meta">
+      <span class="context-entry-author">by ${storedBy}</span>
+      <span class="context-entry-access">${entry.accessCount}x accessed</span>
+      <span class="context-entry-time">${time}</span>
+    </div>
+  </div>`;
+}
+
+function handleTeamContextEvent(msg) {
+  const teamId = msg.teamId;
+
+  // Refresh the panel if it's active
+  if (contextTabActive && activeTeamId === teamId) {
+    loadTeamContext(teamId);
+  }
+}
+
+// --- Agent idle events (AP5-A) ---
+
+function handleAgentIdleEvent(msg) {
+  const event = msg.event;
+  const name = event.sessionName || "Agent";
+
+  if (event.type === "agent_idle_warning") {
+    // Dim the tab and show idle badge
+    const session = sessions.get(event.sessionId);
+    if (session && session.tabEl) {
+      session.tabEl.classList.add("tab-idle");
+      let badge = session.tabEl.querySelector(".agent-state-badge");
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "agent-state-badge";
+        session.tabEl.querySelector(".tab-name").after(badge);
+      }
+      badge.className = "agent-state-badge state-idle";
+      badge.textContent = "idle";
+    }
+    showToast(`${name} has been idle for 5+ minutes. Will auto-stop in 5 minutes.`, "warning");
+  }
+
+  if (event.type === "agent_idle_killed") {
+    // Mark session as exited in local state
+    const session = sessions.get(event.sessionId);
+    if (session && session.tabEl) {
+      session.tabEl.classList.add("tab-idle");
+    }
+    showToast(`${name} was auto-stopped after 10 minutes idle.`, "error");
+  }
+}
+
+function showToast(message, level = "info") {
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${level}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  // Trigger animation
+  requestAnimationFrame(() => toast.classList.add("toast-show"));
+
+  // Auto-dismiss after 6 seconds
+  setTimeout(() => {
+    toast.classList.remove("toast-show");
+    toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+    // Fallback removal if transitionend doesn't fire
+    setTimeout(() => toast.remove(), 500);
+  }, 6000);
 }
 
 function startUsageAutoRefresh() {
@@ -1169,6 +1629,8 @@ function handleTeamUpdate(msg) {
         teams.delete(msg.teamId);
         teamMessages.delete(msg.teamId);
         teamTasks.delete(msg.teamId);
+        teamEvents.delete(msg.teamId);
+        teamContexts.delete(msg.teamId);
         const el = teamList.querySelector(`[data-team-id="${msg.teamId}"]`);
         if (el) el.remove();
 
@@ -1724,6 +2186,18 @@ quickAddSelect.addEventListener("change", () => {
   const role = allRoles.find((r) => r.id === id);
   if (role) addRole(role);
   quickAddSelect.value = "";
+});
+
+// Events panel filter listeners
+document.getElementById("events-filter-type").addEventListener("change", () => {
+  if (eventsTabActive && activeTeamId && teamEvents.has(activeTeamId)) {
+    renderEventsPanel(teamEvents.get(activeTeamId));
+  }
+});
+document.getElementById("events-filter-agent").addEventListener("change", () => {
+  if (eventsTabActive && activeTeamId && teamEvents.has(activeTeamId)) {
+    renderEventsPanel(teamEvents.get(activeTeamId));
+  }
 });
 
 // Init

@@ -11,6 +11,7 @@ const DEFAULT_STATE = {
   teams: {},
   messages: {},
   tasks: {},
+  contexts: {},
   templates: [],
   settings: {},
 };

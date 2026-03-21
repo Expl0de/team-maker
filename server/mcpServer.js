@@ -297,5 +297,90 @@ server.tool(
   }
 );
 
+// --- Shared Context Store MCP Tools ---
+
+server.tool(
+  "store_context",
+  "Store a piece of knowledge in the team's shared context store. Use this after reading or analyzing project files so other agents don't have to repeat the work. The key should be descriptive (e.g., 'package.json-deps', 'src-architecture', 'auth-flow').",
+  {
+    key: z.string().describe("A descriptive key for this context entry (e.g., 'package.json-deps', 'api-routes')"),
+    content: z.string().describe("The content to store — file summaries, analysis results, architecture notes, etc."),
+    summary: z.string().optional().describe("A one-line summary of what this context contains (for discovery via list_context)"),
+    fromAgentId: z.string().optional().describe("Your own session ID (for tracking who stored the context)"),
+  },
+  async ({ key, content, summary, fromAgentId }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/context`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, content, summary, storedBy: fromAgentId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      return {
+        content: [{ type: "text", text: `Context stored: "${key}" (~${data.entry.tokens} tokens). Other agents can find it with list_context() or query_context("${key}").` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "query_context",
+  "Search the team's shared context store by keywords. Returns matching entries with full content. Use this BEFORE reading project files to check if another agent already analyzed them.",
+  {
+    query: z.string().describe("Keywords to search for in context keys and summaries"),
+  },
+  async ({ query }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/context/query?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      if (data.results.length === 0) {
+        return { content: [{ type: "text", text: `No context found matching "${query}". You may need to read the files yourself.` }] };
+      }
+      const formatted = data.results.map((r) =>
+        `### ${r.key} (score: ${r.score}, by ${r.storedByName || "unknown"})\n${r.content}`
+      ).join("\n\n---\n\n");
+      return {
+        content: [{ type: "text", text: `Found ${data.results.length} result(s):\n\n${formatted}` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "list_context",
+  "List all entries in the team's shared context store. Shows keys, summaries, and who stored each entry. Use this to discover what knowledge is already available before doing redundant work.",
+  {},
+  async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/context`);
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      if (data.entries.length === 0) {
+        return { content: [{ type: "text", text: "No shared context stored yet. Use store_context() to share knowledge with the team." }] };
+      }
+      const formatted = data.entries.map((e) =>
+        `- **${e.key}** (~${e.tokens} tokens, by ${e.storedByName || "unknown"}, accessed ${e.accessCount}x)\n  ${e.summary || "(no summary)"}`
+      ).join("\n");
+      return {
+        content: [{ type: "text", text: `${data.entries.length} shared context entries:\n\n${formatted}\n\nUse query_context("keyword") to retrieve full content.` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

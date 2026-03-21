@@ -144,108 +144,102 @@ Everything is in-memory. When the server stops, all teams, sessions, message his
 
 ---
 
-## Anti-Pattern 3: PTY as the Control Plane
+## Anti-Pattern 3: PTY as the Control Plane ✅ FIXED
 
-### Where
-- `server/sessionManager.js` lines 122-134 (PTY spawn)
-- `server/sessionManager.js` lines 238-253 (prompt injection via PTY write)
-- `server/sessionManager.js` lines 160-220 (ANSI stripping + question detection)
+### Status: Completed
 
-### Why It's an Anti-Pattern
-- **Timing-dependent**: Initial prompt injection waits 5 seconds (`setTimeout(5000)`) for CLI startup, then 500ms between pasting text and pressing Enter. If the CLI is slow (cold start, network lag), the prompt arrives before the CLI is ready and gets lost silently.
-- **Fragile parsing**: Question detection relies on regex patterns matching against ANSI-stripped terminal output: `Do you want to`, `Allow`, `yes/no`, `(y/n)`, etc. Any CLI output format change (new prompt wording, different dialog style) breaks detection silently.
-- **No structured data exchange**: The server reads raw terminal bytes. It cannot distinguish between:
-  - Agent task output ("I created file X")
-  - Agent status updates ("Working on step 3...")
-  - Agent errors ("Failed to read file")
-  - Agent-to-agent communication content
-  - CLI system messages (permission prompts, warnings)
-- **Scrollback as state**: The 100KB scrollback buffer is the only record of what happened. There's no structured event log, no way to query "what did Agent 2 do in step 3?" without parsing terminal text.
-- **Resize sensitivity**: PTY dimensions (cols/rows) affect line wrapping, which affects ANSI stripping and pattern matching. A narrow terminal might break multi-line prompt detection.
-
-### Chosen: Option C — Hybrid approach
+### Chosen: Option C — Hybrid approach (PTY display + JSONL control)
 
 **Why Option C:** Option B (SDK/API) would require paying per-token via the Anthropic API, losing the cost advantage of running under a Claude Pro/Max flat-rate subscription. Option A (JSONL-only) loses the terminal UI that is Team Maker's key differentiator. Option C keeps both:
 - PTY stays for the user-facing terminal view (xterm.js) — the real-time observability users love
 - JSONL parsing added as a parallel structured channel for the control plane
-- Already partially implemented (token tracking reads JSONL) — extend to capture tool calls, completions, errors
 - No subscription cost change — still runs under Claude Pro/Max
 
-### Implementation Plan
-1. **`server/sessionManager.js`** — Extend JSONL parsing
-   - Current: polls JSONL for token/cost metrics only
-   - Extend to extract: assistant messages, tool calls (name + args + result), errors, completion signals
-   - Emit structured events over WebSocket: `{type: "agent_event", event: "tool_call"|"message"|"error", data: {...}}`
-   - Use JSONL events as source of truth for agent activity state (active/idle/blocked/completed)
-2. **Frontend** — Structured event log panel
-   - New panel alongside terminals showing agent activity as structured events
-   - Filter by agent, event type, time range
-   - Clickable tool calls showing args and results
-   - Replace question detection regex with structured JSONL-based detection where possible
-3. **Deprecate PTY-based state tracking**
-   - Keep ANSI stripping + question detection as fallback
-   - Prefer JSONL-sourced events for all orchestration decisions
-   - PTY becomes display-only; JSONL becomes the control plane
+### What Was Implemented
+1. **`server/jsonlParser.js`** — New module with incremental JSONL parsing
+   - `JsonlWatcher` class: watches JSONL files via `fs.watch` + 3s polling fallback
+   - Only reads new bytes since last read (incremental, not re-reading entire file)
+   - `extractEvents()` extracts structured events: `tool_call`, `tool_result`, `assistant_message`, `turn_complete`, `thinking`, `usage`
+   - `summarizeToolInput()` / `summarizeToolResult()` — truncate large payloads for display
+
+2. **`server/sessionManager.js`** — Replaced interval-based JSONL polling with `JsonlWatcher`
+   - Removed `parseJsonlUsage()` and `_startJsonlPolling()` — token usage now tracked incrementally via `usage` events
+   - Added `_handleJsonlEvent()` — updates token usage, tracks `agentState` (starting/working/tool_calling/thinking/idle/completed), stores events in circular buffer (500 max), broadcasts to listeners
+   - Added `agentState` and `lastToolCall` to `toJSON()` for API visibility
+   - Added `onEvent()` for per-session event listeners, `getEvents()` for event retrieval
+   - `SessionManager.onAgentEvent()` — global listener that forwards events from all sessions
+   - PTY question detection kept as fallback (permission prompts are CLI-internal, not in JSONL)
+
+3. **`server/index.js`** — New API and WebSocket broadcast
+   - `GET /api/teams/:teamId/events` — query structured events with optional `type`, `sessionId`, `limit` filters
+   - WebSocket broadcasts `agent-event` messages for real-time frontend updates
+   - `agent_state` messages sent to per-session WebSocket clients on state changes
+
+4. **Frontend** — Events panel added
+   - "Events" tab (⚡) in tab bar alongside Usage/Messages/Tasks
+   - Events panel with filterable event stream: filter by event type, filter by agent
+   - Event rendering: tool calls (with name + file/command), tool results (with error status), assistant messages, turn completions, thinking indicators
+   - Agent state badges on session tabs: shows current state (working/tool_calling/thinking) with color-coded Catppuccin badges
+   - Real-time updates via `agent-event` and `agent_state` WebSocket events with fade-in animation
+   - Scrollbar styling consistent with other panels
 
 ### Impact
-- Eliminates timing-dependent failures
-- Enables structured event logging and querying
-- Makes the system resilient to CLI output format changes
+- JSONL is now the structured control plane; PTY is display-only
+- Incremental JSONL parsing replaces full-file re-reads (more efficient)
+- Structured event log enables querying agent activity ("what tools did Agent 2 use?")
+- Agent state visible at a glance via tab badges
+- Permission prompt detection preserved via PTY fallback
 - **Preserves free subscription model** — no API costs
 
 ---
 
-## Anti-Pattern 4: No Task State Machine
+## Anti-Pattern 4: No Task State Machine ✅ FIXED
 
-### Where
-- `server/teamManager.js` — teams track `agentIds` and `mainAgentId` but no task state
-- `server/sessionManager.js` — sessions track `status` (running/exited) but not task progress
-- Orchestrator prompt in `server/promptBuilder.js` — task coordination is entirely in free-form agent text
-
-### Why It's an Anti-Pattern
-- **No crash recovery**: If the server restarts, all team state is lost. Sessions are in-memory only. The PTY processes die with the server. There's no way to resume a multi-agent task.
-- **No progress tracking**: The only way to know task status is to read terminal scrollback. There's no structured representation of "Agent 2 completed subtask X, Agent 3 is working on Y."
-- **No retry logic**: If an agent fails (PTY crashes, CLI error, context window exhaustion), the orchestrator has no mechanism to detect this and reassign the work. The team just has a dead agent.
-- **No completion detection**: The system doesn't know when the overall task is done. The orchestrator might declare completion in its terminal output, but the server doesn't parse or act on this.
-- **No dependency tracking**: If Task B depends on Task A, there's no mechanism to ensure A completes before B starts. It's entirely up to the orchestrator agent to manage this via free-form text reasoning.
+### Status: Completed
 
 ### Chosen: Option A — Server-side task board
 
-**Why Option A:** This is the biggest win for the project's two core goals — **agent flow flexibility** and **visualization**. Option C (workflow engine) would mean a heavy rewrite and external dependency. Option B (persistent state) is a subset of Option A. The task board gives:
-- Visible task flow in the UI (watch tasks move through states in real-time)
-- Manual intervention capability (reassign/retry tasks from the UI)
-- Structured dependency tracking (no more free-form text coordination)
-- Replaces `MULTI_AGENT_PLAN.md` with something agents and humans can both interact with
-- Foundation for future workflow graph visualization
-
-### Implementation Plan
-1. **`server/taskBoard.js`** — New `TaskBoard` class
+### What Was Implemented
+1. **`server/taskBoard.js`** — `TaskBoard` class with full state machine
    - Task states: `pending` → `assigned` → `in_progress` → `completed` | `failed`
-   - Task schema: `{ id, title, description, status, assignedTo, dependsOn[], result, createdBy, timestamps }`
-   - Methods: `createTask()`, `claimTask()`, `completeTask()`, `failTask()`, `getBoard()`, `getTasksByAgent()`
+   - Task schema: `{ id, title, description, status, assignedTo, assignedToName, dependsOn[], result, failReason, createdBy, createdByName, teamId, timestamps }`
+   - Methods: `createTask()`, `claimTask()`, `startTask()`, `completeTask()`, `failTask()`, `retryTask()`, `getTeamTasks()`, `getBoardSummary()`, `clearTeam()`
    - Dependency resolution: task can only be claimed if all `dependsOn` tasks are `completed`
-   - Broadcast task state changes over WebSocket for real-time UI updates
-2. **`server/mcpServer.js`** — New MCP tools
-   - `create_task(title, description, dependsOn[])` — orchestrator creates tasks
-   - `claim_task(taskId)` — agent claims a pending task
-   - `complete_task(taskId, result)` — agent marks task done with summary
-   - `fail_task(taskId, reason)` — agent marks task failed (enables reassignment)
-   - `get_tasks(filter?)` — query current task board state
-3. **`server/promptBuilder.js`** — Update orchestrator prompt
-   - Remove `MULTI_AGENT_PLAN.md` file-based planning instructions
-   - Replace with task board MCP tool instructions
-   - Orchestrator creates tasks → sub-agents claim and execute → report completion
-4. **Frontend** — Task board panel
-   - Kanban-style columns: Pending | In Progress | Completed | Failed
-   - Tasks show assignee, dependencies, timestamps
-   - Click to view result/failure reason
-   - Future: manual drag-and-drop for task reassignment
+   - Event listeners for WebSocket broadcast on task state changes
+   - Persisted to `~/.team-maker/state.json` via StateStore, restored on startup
+
+2. **`server/mcpServer.js`** — MCP tools for agent task management
+   - `create_task(title, description?, dependsOn?, fromAgentId?)` — orchestrator creates tasks
+   - `claim_task(taskId, agentId)` — agent claims a pending task
+   - `complete_task(taskId, agentId, result)` — agent marks task done with summary
+   - `fail_task(taskId, agentId, reason)` — agent marks task failed (enables reassignment)
+   - `get_tasks(status?, assignedTo?)` — query current task board state with filters
+
+3. **`server/index.js`** — REST API endpoints
+   - `POST /api/teams/:teamId/tasks` — create task
+   - `GET /api/teams/:teamId/tasks` — get tasks with optional filters
+   - `POST /api/teams/:teamId/tasks/:taskId/claim` — claim task
+   - `POST /api/teams/:teamId/tasks/:taskId/complete` — complete task
+   - `POST /api/teams/:teamId/tasks/:taskId/fail` — fail task
+   - `POST /api/teams/:teamId/tasks/:taskId/retry` — retry failed task
+   - WebSocket broadcast of `task-update` events on every state change
+   - Team deletion cleans up associated tasks
+
+4. **`server/promptBuilder.js`** — Orchestrator and sub-agent prompts updated
+   - Removed `MULTI_AGENT_PLAN.md` file-based planning instructions
+   - Orchestrator prompt: break work into tasks via `create_task`, spawn agents, assign via `send_message`
+   - Sub-agent prompt: use `get_tasks` to find work, `claim_task` to claim, `complete_task`/`fail_task` to report
+
+5. **Frontend** — Tasks panel in the UI
+   - Tasks panel showing task cards with status, assignee, dependencies, timestamps
+   - Real-time updates via `task-update` WebSocket events
+   - Retry button for failed tasks
 
 ### Impact
 - Enables crash recovery and task reassignment
 - Provides structured progress visibility in the UI
 - Reduces orchestrator token waste from managing state in free-form text
-- **Depends on:** Anti-Pattern 2 fix (message queue infrastructure)
+- Foundation for AP5-C (smart model routing based on task complexity)
 
 ---
 
@@ -278,53 +272,78 @@ Most token waste is addressed by fixing patterns 1-4. The remaining optimization
 
 ---
 
-#### Phase A: Lazy Agent Spawning — do first (low effort, immediate savings)
+#### Phase A: Lazy Agent Spawning ✅ DONE
 
 **Problem:** All agents spawn at team creation even if the orchestrator hasn't figured out what to assign them yet. Idle agents consume context window tokens doing nothing.
 
-**Implementation Plan:**
-1. **`server/promptBuilder.js`** — Update orchestrator prompt
-   - Change from "spawn all agents immediately" to "spawn agents when you have a task ready for them"
-   - Add instruction: "Use `spawn_agent` only when you have a concrete task. Don't spawn agents speculatively."
-2. **`server/sessionManager.js`** — Add idle timeout
-   - Track `lastActivityTimestamp` per session (already partially exists via activity detection)
-   - New method: `checkIdleAgents(teamId)` — if agent idle >5 minutes and has no pending tasks (via task board from AP4), send a warning message; if idle >10 minutes, auto-kill
-   - Emit `{type: "agent_idle_warning"}` and `{type: "agent_idle_killed"}` WebSocket events
-3. **`server/teamManager.js`** — Remove eager spawn
-   - Team creation spawns only the orchestrator (Agent 0)
-   - Orchestrator spawns sub-agents as needed via MCP `spawn_agent`
-4. **Frontend** — Show idle status
-   - Dim idle agent tabs, show idle duration badge
-   - Toast notification when agent is auto-killed for idleness
+**What Was Implemented:**
+1. **`server/promptBuilder.js`** — Orchestrator prompt updated for lazy spawning
+   - Step 3 changed from "Spawn all N agents" to "Spawn Sub-Agents On Demand"
+   - Instructs orchestrator: create tasks first, then spawn agents only when tasks are unblocked
+   - Added responsibility #11: "Do NOT keep agents around if they have no more tasks"
+   - Removed unused `agentCount` variable
+
+2. **`server/sessionManager.js`** — Idle timeout detection for sub-agents
+   - Tracks `_idleStartTime` — set when agent enters `idle` state via JSONL events, cleared on any activity
+   - 30-second idle check interval (starts after 2min initial delay)
+   - **5 minutes idle** → emits `agent_idle_warning` event
+   - **10 minutes idle** → emits `agent_idle_killed` event and auto-kills the session
+   - Only applies to sub-agents (`role === "agent"`), not the orchestrator
+   - `onIdleEvent()` listener API for event forwarding
+   - `SessionManager.onIdleEvent()` — global listener that forwards from all sessions
+
+3. **`server/index.js`** — WebSocket broadcast of idle events
+   - Broadcasts `agent-idle` messages with event type and session metadata
+   - On `agent_idle_killed`, removes the agent from the team's agent list and persists
+
+4. **Frontend** — Idle status display and toast notifications
+   - Idle agents get dimmed tabs (`tab-idle` class, 45% opacity)
+   - Agent state badge shows "idle" with appropriate styling
+   - Toast notification system (slide-in from right, auto-dismiss after 6s)
+   - Warning toast (yellow border) at 5 minutes idle
+   - Error toast (red border) when agent is auto-stopped at 10 minutes
 
 **Estimated savings:** 20-40% reduction in idle token waste for teams where not all agents are needed simultaneously.
 
 ---
 
-#### Phase B: Shared Context Store — do second (medium effort, LangChain integration point)
+#### Phase B: Shared Context Store ✅ DONE
 
 **Problem:** Each agent independently reads the same project files (package.json, README, key source files) to build context. A 4-agent team reading the same 10 files = 4x the token cost for identical information.
 
-**Implementation Plan:**
+**What Was Implemented:**
 1. **`server/contextStore.js`** — New `ContextStore` class
-   - In-memory Map: `key → { content, summary, tokens, lastUpdated, accessCount }`
-   - Methods:
-     - `store(key, content, summary)` — agent stores a context snippet after reading a file or completing analysis
-     - `query(query)` — keyword match against keys and summaries, return top-N results
-     - `list()` — return all stored context keys with summaries (for agent discovery)
-     - `invalidate(key)` — remove stale entries when files change
-   - Persisted to `~/.team-maker/state.json` under `contexts` key (via StateStore from prerequisite)
-   - Size cap: 500KB total stored content, LRU eviction
-2. **`server/mcpServer.js`** — New MCP tools
-   - `store_context(key, content, summary)` — agent shares knowledge with the team
-   - `query_context(query)` — agent retrieves shared knowledge instead of re-reading files
-   - `list_context()` — agent discovers what knowledge is already available
-3. **`server/promptBuilder.js`** — Update agent prompts
-   - Add instruction: "Before reading project files, check `list_context()` and `query_context()` to see if another agent already summarized them."
-   - Orchestrator prompt: "After the architect analyzes the codebase, have them `store_context()` their findings so other agents don't repeat the work."
-4. **Frontend** — Context store panel (optional)
-   - Show shared context entries: key, summary, which agent stored it, access count
-   - Visualization of knowledge flow between agents
+   - In-memory Map: `key → { content, summary, tokens, lastUpdated, accessCount, storedBy, storedByName, teamId }`
+   - Methods: `store()`, `query()`, `list()`, `get()`, `invalidate()`, `clearTeam()`, `getStats()`
+   - Keyword-based search across keys and summaries, sorted by relevance score + access count
+   - Persisted to `~/.team-maker/state.json` under `contexts` key via StateStore
+   - Size cap: 500KB total stored content, 200 max entries, LRU eviction
+   - Event listeners for WebSocket broadcast on context changes
+
+2. **`server/mcpServer.js`** — Three new MCP tools
+   - `store_context(key, content, summary?, fromAgentId?)` — agent shares knowledge with the team
+   - `query_context(query)` — agent searches shared knowledge by keywords, returns full content
+   - `list_context()` — agent discovers what knowledge is already available (keys + summaries)
+
+3. **`server/index.js`** — REST API endpoints
+   - `POST /api/teams/:teamId/context` — store a context entry
+   - `GET /api/teams/:teamId/context` — list all entries with stats
+   - `GET /api/teams/:teamId/context/query?q=` — search by keywords
+   - `GET /api/teams/:teamId/context/:key` — get single entry with full content
+   - `DELETE /api/teams/:teamId/context/:key` — delete an entry
+   - WebSocket broadcast of `team-context` events on every store/invalidate
+   - Team deletion cleans up associated context entries
+
+4. **`server/promptBuilder.js`** — Agent prompts updated
+   - Orchestrator prompt: added Shared Context Store tools section with context sharing strategy (have architect store findings for other agents)
+   - Sub-agent prompt: added context store tools with **IMPORTANT** instruction to check `list_context()` BEFORE reading project files, and `store_context()` after analysis
+
+5. **Frontend** — Context panel (🧠 tab)
+   - "Context" tab in tab bar alongside Usage/Messages/Tasks/Events
+   - Context panel showing all shared entries with key, summary, author, token count, access count
+   - Storage stats bar (entries, bytes used, percentage)
+   - Real-time updates via `team-context` WebSocket events
+   - Catppuccin Mocha themed with monospace keys
 
 **Estimated savings:** 30-50% reduction in duplicate file-reading tokens.
 
@@ -403,27 +422,28 @@ For balance, these patterns are good and worth preserving:
 | ~~1~~ | ~~AP1: Wake Loop~~ | ~~C: Remove + health-check~~ | ~~Low~~ | ~~60-80% token savings~~ | ✅ Done |
 | ~~1.5~~ | ~~Persistence Layer~~ | ~~JSON file store (`~/.team-maker/state.json`)~~ | ~~Low~~ | ~~State survives restarts, foundation for AP2+AP4~~ | ✅ Done |
 | ~~2~~ | ~~AP2: File Messaging~~ | ~~A: Server-side message queue~~ | ~~Medium~~ | ~~Reliable comms, message history, delivery tracking~~ | ✅ Done |
-| **3** | **AP4: No Task State** | **A: Server-side task board** | Medium | Flow control, visualization, dependency tracking | 🔜 Next |
-| **4** | **AP3: PTY Control Plane** | **C: Hybrid (PTY display + JSONL control)** | Medium | Structured events, resilience, keeps free subscription | Planned |
-| **5a** | **AP5-A: Lazy Spawning** | **On-demand spawn + idle timeout** | Low | 20-40% idle token savings | Planned |
-| **5b** | **AP5-B: Shared Context** | **In-memory store → LangChain vector DB** | Medium | 30-50% duplicate read savings, LangChain foundation | Planned |
-| **5c** | **AP5-C: Smart Model Routing** | **Per-task model selection** | Medium | 40-60% coordination cost reduction | Deferred (needs AP4) |
+| ~~3~~ | ~~AP4: No Task State~~ | ~~A: Server-side task board~~ | ~~Medium~~ | ~~Flow control, visualization, dependency tracking~~ | ✅ Done |
+| ~~4~~ | ~~AP3: PTY Control Plane~~ | ~~C: Hybrid (PTY display + JSONL control)~~ | ~~Medium~~ | ~~Structured events, resilience, keeps free subscription~~ | ✅ Done |
+| ~~5a~~ | ~~AP5-A: Lazy Spawning~~ | ~~On-demand spawn + idle timeout~~ | ~~Low~~ | ~~20-40% idle token savings~~ | ✅ Done |
+| ~~5b~~ | ~~AP5-B: Shared Context~~ | ~~In-memory store → LangChain vector DB~~ | ~~Medium~~ | ~~30-50% duplicate read savings, LangChain foundation~~ | ✅ Done |
+| **5c** | **AP5-C: Smart Model Routing** | **Per-task model selection** | Medium | 40-60% coordination cost reduction | Planned (AP4 done) |
 
 ### Dependency chain
 ```
-AP1 (done) → Persistence Layer (done) → AP2 (done) → AP4 (task board) → AP5-C (smart model routing)
+AP1 (done) → Persistence Layer (done) → AP2 (done) → AP4 (done) → AP5-C (smart model routing)
                                                ↓                     ↓
                                           AP5-A (lazy spawn)    AP5-B (shared context → LangChain)
                                           (can start anytime)
 
-                                       AP3 (hybrid JSONL) — independent, can parallel with AP4
+                                       AP3 (hybrid JSONL) — ✅ Done
 ```
 - ~~**Persistence Layer** is the prerequisite — AP2 and AP4 need somewhere to store messages and tasks~~ ✅ Done
 - ~~AP2 (message queue) is foundational — AP4 (task board) builds on its infrastructure~~ ✅ Done
-- AP3 (hybrid JSONL) is independent and can be done in parallel with AP4
-- AP5-A (lazy spawning) has no hard dependencies — can be done anytime after AP1
-- AP5-B (shared context) uses the persistence layer, best done after AP4 so agents have tasks to contextualize
-- AP5-C (smart model routing) requires AP4 task board for task complexity metadata
+- ~~AP4 (task board) enables task-level tracking — AP5-C can now use task metadata~~ ✅ Done
+- ~~AP3 (hybrid JSONL) is independent — next up~~ ✅ Done
+- ~~AP5-A (lazy spawning) has no hard dependencies — can be done anytime~~ ✅ Done
+- ~~AP5-B (shared context) uses the persistence layer, best done after AP3~~ ✅ Done
+- AP5-C (smart model routing) can now start (AP4 done, AP5-A done)
 
 ### Design constraint
 Team Maker runs agents as Claude Code CLI processes under a **Pro/Max flat-rate subscription**. All architectural decisions preserve this model — no migration to the Anthropic API (pay-per-token) unless building a commercial product. This is why Option C (hybrid) was chosen for AP3 instead of Option B (SDK/API).
@@ -432,26 +452,15 @@ Team Maker runs agents as Claude Code CLI processes under a **Pro/Max flat-rate 
 
 ## Architecture Vision: Before and After
 
-### Current Architecture
+### Current Architecture (after AP1-AP4 + AP3 + AP5-A + AP5-B)
 ```
-Browser (xterm.js)
-  ↕ WebSocket (raw terminal bytes)
-Express Server
-  ↕ PTY stdin/stdout (unstructured text)
-Claude Code CLI instances
-  ↕ File system (AGENT_COMMUNICATE.md, MULTI_AGENT_PLAN.md)
-Agent-to-Agent communication (polling, file-based)
-```
-
-### Proposed Architecture
-```
-Browser (xterm.js + task board UI + message log)
-  ↕ WebSocket (terminal bytes + structured events)
-Express Server (with MessageQueue + TaskBoard + StateStore)
-  ↕ PTY (display only) + JSONL (structured state) + MCP (control plane)
-  ↕ ~/.team-maker/state.json (persistence — teams, messages, tasks, templates)
-Claude Code CLI instances
-  ↕ MCP tools (check_inbox, create_task, complete_task, query_context)
+Browser (xterm.js + task board UI + message log + event stream + context panel + toast notifications)
+  ↕ WebSocket (terminal bytes + structured events + idle events + context events)
+Express Server (with MessageQueue + TaskBoard + ContextStore + StateStore + JsonlWatcher + IdleTimeout)
+  ↕ PTY (display only) + JSONL (structured control plane) + MCP (tool interface)
+  ↕ ~/.team-maker/state.json (persistence — teams, messages, tasks, contexts, templates)
+Claude Code CLI instances (spawned on-demand, auto-killed when idle)
+  ↕ MCP tools (check_inbox, create_task, complete_task, store_context, query_context, list_context)
 Agent-to-Agent communication (event-driven, server-mediated)
 ```
 
@@ -460,7 +469,9 @@ Key differences:
 - Server mediates all inter-agent communication (no direct file sharing)
 - Task state is server-managed with persistence
 - Agents are nudged only when there's actual work (event-driven, not polling)
-- Shared context store provides future LangChain/vector DB integration point
+- Agents are spawned on-demand and auto-killed after 10 minutes idle (AP5-A)
+- Shared context store reduces duplicate file reads by 30-50% (AP5-B)
+- Context store provides future LangChain/vector DB integration point (swap backend, same MCP tools)
 - All changes preserve the Claude Pro/Max subscription model (no API costs)
 
 ### Future: LangChain Integration Path
