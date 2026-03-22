@@ -2337,12 +2337,6 @@ setInterval(async () => {
 
 // --- Event listeners ---
 
-// Usage tab
-document.getElementById("usage-btn").addEventListener("click", () => {
-  if (!activeTeamId) return;
-  switchToUsageTab();
-});
-
 // Model routing toggle
 document.getElementById("model-routing-enabled").addEventListener("change", (e) => {
   document.getElementById("model-routing-config").style.display = e.target.checked ? "" : "none";
