@@ -121,8 +121,8 @@ class StateStore {
 
   _writeSync() {
     try {
-      mkdirSync(STATE_DIR, { recursive: true });
-      writeFileSync(STATE_FILE, JSON.stringify(this._state, null, 2));
+      mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+      writeFileSync(STATE_FILE, JSON.stringify(this._state, null, 2), { mode: 0o600 });
     } catch (err) {
       console.error(`[StateStore] Failed to write state: ${err.message}`);
     }

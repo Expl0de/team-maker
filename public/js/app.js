@@ -162,7 +162,7 @@ function renderUsageAgentTableHTML(agents) {
       <tr>
         <td>
           <span class="usage-status-dot ${statusClass}"></span>
-          <span class="usage-agent-name">${a.name}</span>
+          <span class="usage-agent-name">${escapeHtml(a.name)}</span>
           <span class="usage-role-badge${roleClass}">${roleLabel}</span>
         </td>
         <td class="usage-cost-cell">${formatCost(a.tokenUsage.cost)}</td>
@@ -1979,7 +1979,7 @@ async function viewFile(filePath) {
 
     let contentHtml;
     if (isMarkdown) {
-      const rendered = marked.parse(data.content);
+      const rendered = DOMPurify.sanitize(marked.parse(data.content));
       contentHtml = `<div class="file-viewer-markdown">${rendered}</div>`;
     } else {
       const lines = data.content.split("\n");
