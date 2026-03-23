@@ -12,13 +12,13 @@
     <h1>Team Maker</h1>
     <div id="header-actions">
       <span id="session-count">0 agents</span>
-      <button id="new-agent-btn" title="Add agent to current team" class="header-btn secondary-btn" disabled>+ New Agent</button>
+<button id="new-agent-btn" title="Add agent to current team" class="header-btn secondary-btn" disabled>+ New Agent</button>
       <button id="new-team-btn" title="Create a new team">+ New Team</button>
     </div>
   </header>
   <div id="app-layout">
     <aside id="sidebar">
-      <div id="sidebar-header">Teams</div>
+      <div id="sidebar-header"><span>Teams</span><button id="import-team-btn" title="Import team from file">&#8613;</button></div>
       <div id="team-list"></div>
     </aside>
     <div id="main-content">
@@ -27,6 +27,64 @@
         <div id="empty-state">
           <p>No teams yet</p>
           <p>Click <strong>+ New Team</strong> to create a team with an orchestrator agent</p>
+        </div>
+        <div id="usage-panel" class="terminal-wrapper">
+          <div id="usage-panel-content">
+            <div class="empty-state">Loading usage...</div>
+          </div>
+        </div>
+        <div id="messages-panel" class="terminal-wrapper">
+          <div id="messages-panel-content">
+            <div class="messages-empty">No messages yet</div>
+          </div>
+        </div>
+        <div id="tasks-panel" class="terminal-wrapper">
+          <div id="tasks-panel-content">
+            <div class="tasks-empty">No tasks yet</div>
+          </div>
+        </div>
+        <div id="events-panel" class="terminal-wrapper">
+          <div id="events-panel-header">
+            <div class="events-filters">
+              <select id="events-filter-type">
+                <option value="">All events</option>
+                <option value="tool_call">Tool calls</option>
+                <option value="tool_result">Tool results</option>
+                <option value="assistant_message">Messages</option>
+                <option value="turn_complete">Completions</option>
+                <option value="thinking">Thinking</option>
+              </select>
+              <select id="events-filter-agent">
+                <option value="">All agents</option>
+              </select>
+              <input id="events-filter-search" type="text" placeholder="Search events..." autocomplete="off" />
+            </div>
+          </div>
+          <div id="events-panel-content">
+            <div class="events-empty">No events yet</div>
+          </div>
+        </div>
+        <div id="context-panel" class="terminal-wrapper">
+          <div id="context-panel-content">
+            <div class="context-empty">No shared context yet</div>
+          </div>
+        </div>
+        <div id="files-panel" class="terminal-wrapper">
+          <div id="files-panel-content">
+            <div class="files-empty">No files changed yet</div>
+          </div>
+        </div>
+        <div id="team-panel" class="terminal-wrapper">
+          <div id="team-panel-layout">
+            <div id="team-flow-graph">
+              <div id="team-flow-nodes"></div>
+            </div>
+            <div id="team-console-area">
+              <div id="team-console-placeholder">
+                <p>Select an agent to view its console</p>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>
@@ -50,13 +108,44 @@
       <textarea id="prompt-input" rows="4" placeholder="e.g. Build a REST API with auth, tests, and documentation" spellcheck="false"></textarea>
       <p class="path-hint">Describe the task — the orchestrator will break it down and spawn agents</p>
 
-      <div class="role-editor-section">
-        <label>Wake Interval</label>
-        <div class="wake-interval-row">
-          <input type="number" id="wake-interval-input" value="60" min="10" max="600" />
-          <span class="wake-interval-unit">seconds</span>
-        </div>
+      <label for="model-select">Default Model</label>
+      <select id="model-select" class="modal-select">
+        <option value="">Default</option>
+        <option value="claude-opus-4-6">Opus (claude-opus-4-6)</option>
+        <option value="claude-sonnet-4-6">Sonnet (claude-sonnet-4-6)</option>
+        <option value="claude-haiku-4-5-20251001">Haiku (claude-haiku-4-5-20251001)</option>
+      </select>
+      <p class="path-hint">Default model for all roles — individual roles can override</p>
 
+      <div class="model-routing-section">
+        <div class="model-routing-toggle">
+          <input type="checkbox" id="model-routing-enabled" />
+          <label for="model-routing-enabled">Enable smart model routing (auto-select model by task complexity)</label>
+        </div>
+        <div id="model-routing-config" class="model-routing-grid" style="display: none;">
+          <label>Low</label>
+          <select id="routing-low" class="modal-select">
+            <option value="claude-haiku-4-5-20251001" selected>Haiku</option>
+            <option value="claude-sonnet-4-6">Sonnet</option>
+            <option value="claude-opus-4-6">Opus</option>
+          </select>
+          <label>Medium</label>
+          <select id="routing-medium" class="modal-select">
+            <option value="claude-haiku-4-5-20251001">Haiku</option>
+            <option value="claude-sonnet-4-6" selected>Sonnet</option>
+            <option value="claude-opus-4-6">Opus</option>
+          </select>
+          <label>High</label>
+          <select id="routing-high" class="modal-select">
+            <option value="claude-haiku-4-5-20251001">Haiku</option>
+            <option value="claude-sonnet-4-6">Sonnet</option>
+            <option value="claude-opus-4-6" selected>Opus</option>
+          </select>
+        </div>
+        <p class="path-hint">Low = coordination/simple tasks, Medium = standard coding, High = architecture/complex work</p>
+      </div>
+
+      <div class="role-editor-section">
         <label>Agent Roles</label>
         <div class="template-picker-row">
           <select id="template-select">
@@ -96,6 +185,14 @@
       <label for="agent-prompt-input">Agent Prompt <span class="required">*</span></label>
       <textarea id="agent-prompt-input" rows="3" placeholder="e.g. Write unit tests for the API endpoints" spellcheck="false"></textarea>
 
+      <label for="agent-model-select">Model</label>
+      <select id="agent-model-select" class="modal-select">
+        <option value="">Default</option>
+        <option value="claude-opus-4-6">Opus (claude-opus-4-6)</option>
+        <option value="claude-sonnet-4-6">Sonnet (claude-sonnet-4-6)</option>
+        <option value="claude-haiku-4-5-20251001">Haiku (claude-haiku-4-5-20251001)</option>
+      </select>
+
       <div class="modal-actions">
         <button id="agent-modal-cancel" class="modal-btn secondary">Cancel</button>
         <button id="agent-modal-start" class="modal-btn primary">Spawn Agent</button>
@@ -107,6 +204,7 @@
     <span id="status-text">Ready</span>
   </footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>

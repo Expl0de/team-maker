@@ -3,24 +3,34 @@ import { writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import sessionManager from "./sessionManager.js";
+import stateStore from "./stateStore.js";
 import { buildOrchestratorPrompt, BUILTIN_ROLES } from "./promptBuilder.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER_PATH = join(__dirname, "mcpServer.js");
 
+// Default model routing table: maps task complexity to Claude model
+const DEFAULT_MODEL_ROUTING = {
+  low: "claude-haiku-4-5-20251001",
+  medium: "claude-sonnet-4-6",
+  high: "claude-opus-4-6",
+};
+
 class Team {
-  constructor({ id, name, cwd, prompt, roles, wakeInterval, sessionId }) {
+  constructor({ id, name, cwd, prompt, roles, sessionId, model, modelRouting, status }) {
     this.id = id;
     this.name = name;
     this.cwd = cwd;
     this.prompt = prompt;
     this.roles = roles;
-    this.wakeInterval = wakeInterval;
     this.sessionId = sessionId;
+    this.model = model || null; // team-level default model
+    this.modelRouting = modelRouting || null; // { low, medium, high } → model strings
     this.mainAgentId = null;
     this.agentIds = [];
     this.agentCounter = 0;
     this.createdAt = new Date();
+    this.status = status || "running"; // "running" | "stopped"
   }
 
   toJSON() {
@@ -30,10 +40,13 @@ class Team {
       cwd: this.cwd,
       prompt: this.prompt,
       roles: this.roles,
-      wakeInterval: this.wakeInterval,
       mainAgentId: this.mainAgentId,
       agentIds: this.agentIds,
       createdAt: this.createdAt.toISOString(),
+      status: this.status,
+      model: this.model,
+      modelRouting: this.modelRouting,
+      sessionId: this.sessionId,
     };
   }
 }
@@ -43,7 +56,71 @@ class TeamManager {
     this.teams = new Map();
   }
 
-  create({ name, cwd, prompt, roles, wakeInterval = 60 }) {
+  /**
+   * Restore persisted teams from StateStore on startup.
+   * Teams are restored as "stopped" since PTY processes don't survive restarts.
+   */
+  restoreFromState() {
+    const persisted = stateStore.get("teams") || {};
+    let count = 0;
+    for (const [id, data] of Object.entries(persisted)) {
+      const team = new Team({
+        id,
+        name: data.name,
+        cwd: data.cwd,
+        prompt: data.prompt,
+        roles: data.roles || [],
+        sessionId: data.sessionId,
+        model: data.model,
+        modelRouting: data.modelRouting || null,
+        status: "stopped",
+      });
+      team.mainAgentId = data.mainAgentId || null;
+      team.agentIds = []; // PTY sessions are gone — agents list is empty until re-launched
+      team.agentCounter = data.agentCounter || 0;
+      team.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
+      this.teams.set(id, team);
+      count++;
+    }
+    if (count > 0) {
+      console.log(`[TeamManager] Restored ${count} team(s) from state`);
+    }
+  }
+
+  _persistTeam(team) {
+    stateStore.set(`teams.${team.id}`, {
+      name: team.name,
+      cwd: team.cwd,
+      prompt: team.prompt,
+      roles: team.roles,
+      sessionId: team.sessionId,
+      model: team.model,
+      modelRouting: team.modelRouting,
+      mainAgentId: team.mainAgentId,
+      agentCounter: team.agentCounter,
+      createdAt: team.createdAt.toISOString(),
+    });
+  }
+
+  _unpersistTeam(teamId) {
+    stateStore.delete(`teams.${teamId}`);
+  }
+
+  _ensureMcpConfig(teamId, mcpConfigPath) {
+    const port = process.env.PORT || 3456;
+    const mcpConfig = {
+      mcpServers: {
+        "team-maker": {
+          command: "node",
+          args: [MCP_SERVER_PATH],
+          env: { TEAM_ID: teamId, TEAM_MAKER_PORT: String(port) },
+        },
+      },
+    };
+    writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+  }
+
+  create({ name, cwd, prompt, roles, model, modelRouting }) {
     const id = uuidv4();
 
     // Use provided roles or default built-in roles
@@ -61,49 +138,55 @@ class TeamManager {
       String(now.getSeconds()).padStart(2, "0"),
     ].join("");
 
-    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, wakeInterval, sessionId });
+    const team = new Team({ id, name, cwd, prompt, roles: teamRoles, sessionId, model, modelRouting });
     this.teams.set(id, team);
 
     // Write MCP config for this team
     const mcpConfigPath = `/tmp/team-maker-mcp-${id}.json`;
-    const port = process.env.PORT || 3456;
-    const mcpConfig = {
-      mcpServers: {
-        "team-maker": {
-          command: "node",
-          args: [MCP_SERVER_PATH],
-          env: { TEAM_ID: id, TEAM_MAKER_PORT: String(port) },
-        },
-      },
-    };
-    writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+    this._ensureMcpConfig(id, mcpConfigPath);
 
-    // Build comprehensive orchestrator prompt
-    const orchestratorPrompt = buildOrchestratorPrompt({
-      teamName: name,
-      sessionId,
-      cwd: cwd || process.env.HOME,
-      taskPrompt: prompt,
-      roles: teamRoles,
-      wakeInterval,
-    });
+    try {
+      // Determine model for main agent: first role's model > team default
+      const mainModel = (teamRoles[0] && teamRoles[0].model) || model || null;
 
-    // Spawn main agent session
-    const session = sessionManager.create({
-      name,
-      cwd,
-      autoAccept: true,
-      initialPrompt: orchestratorPrompt,
-      teamId: id,
-      role: "main",
-      mcpConfigPath,
-      wakeInterval,
-    });
+      // Spawn main agent session first (without prompt) so we know its session ID
+      const session = sessionManager.create({
+        name,
+        cwd,
+        autoAccept: true,
+        teamId: id,
+        role: "main",
+        mcpConfigPath,
+        model: mainModel,
+      });
 
-    team.mainAgentId = session.id;
-    team.agentIds.push(session.id);
+      // Build orchestrator prompt with the session ID so sub-agents can message back
+      const orchestratorPrompt = buildOrchestratorPrompt({
+        teamName: name,
+        sessionId,
+        cwd: cwd || process.env.HOME,
+        taskPrompt: prompt,
+        roles: teamRoles,
+        orchestratorSessionId: session.id,
+      });
 
-    return { team, session };
+      // Inject the prompt now that we have the session ID embedded
+      session._injectPrompt(orchestratorPrompt);
+
+      team.mainAgentId = session.id;
+      team.agentIds.push(session.id);
+      team.status = "running";
+
+      // Persist team definition
+      this._persistTeam(team);
+
+      return { team, session };
+    } catch (err) {
+      // P1-2: Clean up MCP config and team on failure
+      this.teams.delete(id);
+      try { unlinkSync(mcpConfigPath); } catch {}
+      throw err;
+    }
   }
 
   get(id) {
@@ -114,9 +197,22 @@ class TeamManager {
     return Array.from(this.teams.values()).map((t) => t.toJSON());
   }
 
-  addAgent({ teamId, name, prompt }) {
+  addAgent({ teamId, name, prompt, model, taskComplexity }) {
     const team = this.teams.get(teamId);
     if (!team) return null;
+
+    // Model priority: explicit model > routing table (by task complexity) > team default
+    let agentModel = model || null;
+    if (!agentModel && taskComplexity && team.modelRouting) {
+      agentModel = team.modelRouting[taskComplexity] || null;
+    }
+    if (!agentModel) {
+      agentModel = team.model || null;
+    }
+
+    // Ensure MCP config exists for this team so sub-agents have messaging tools
+    const mcpConfigPath = `/tmp/team-maker-mcp-${teamId}.json`;
+    this._ensureMcpConfig(teamId, mcpConfigPath);
 
     team.agentCounter++;
     const session = sessionManager.create({
@@ -127,9 +223,12 @@ class TeamManager {
       teamId,
       role: "agent",
       agentIndex: team.agentCounter,
+      mcpConfigPath,
+      model: agentModel,
     });
 
     team.agentIds.push(session.id);
+    this._persistTeam(team);
     return session;
   }
 
@@ -142,7 +241,47 @@ class TeamManager {
 
     team.agentIds.splice(idx, 1);
     sessionManager.destroy(agentId);
+    this._persistTeam(team);
     return true;
+  }
+
+  restartAgent(teamId, agentId) {
+    const team = this.teams.get(teamId);
+    if (!team) return null;
+
+    const idx = team.agentIds.indexOf(agentId);
+    if (idx === -1) return null;
+
+    // Get the old session's info before destroying it
+    const oldSession = sessionManager.get(agentId);
+    if (!oldSession) return null;
+
+    const { name, initialPrompt, model, agentIndex } = oldSession;
+
+    // Destroy the old session
+    sessionManager.destroy(agentId);
+
+    // Ensure MCP config exists
+    const mcpConfigPath = `/tmp/team-maker-mcp-${teamId}.json`;
+    this._ensureMcpConfig(teamId, mcpConfigPath);
+
+    // Respawn with same parameters
+    const newSession = sessionManager.create({
+      name,
+      cwd: team.cwd,
+      autoAccept: true,
+      initialPrompt,
+      teamId,
+      role: "agent",
+      agentIndex,
+      mcpConfigPath,
+      model,
+    });
+
+    // Replace the old agent ID with the new one in the team
+    team.agentIds[idx] = newSession.id;
+    this._persistTeam(team);
+    return { oldId: agentId, newSession };
   }
 
   getAgents(teamId) {
@@ -155,11 +294,70 @@ class TeamManager {
     });
   }
 
+  /**
+   * Re-launch a stopped team. Spawns a new orchestrator with the same config.
+   * Returns the team and new main agent session.
+   */
+  relaunch(teamId) {
+    const team = this.teams.get(teamId);
+    if (!team) return null;
+    if (team.status === "running") return null;
+
+    // Write MCP config for this team
+    const mcpConfigPath = `/tmp/team-maker-mcp-${teamId}.json`;
+    this._ensureMcpConfig(teamId, mcpConfigPath);
+
+    const mainModel = (team.roles[0] && team.roles[0].model) || team.model || null;
+
+    // Spawn session first (without prompt) so we know its session ID
+    const session = sessionManager.create({
+      name: team.name,
+      cwd: team.cwd,
+      autoAccept: true,
+      teamId,
+      role: "main",
+      mcpConfigPath,
+      model: mainModel,
+    });
+
+    // Build orchestrator prompt with session ID so sub-agents can message back
+    const orchestratorPrompt = buildOrchestratorPrompt({
+      teamName: team.name,
+      sessionId: team.sessionId,
+      cwd: team.cwd || process.env.HOME,
+      taskPrompt: team.prompt,
+      roles: team.roles,
+      orchestratorSessionId: session.id,
+    });
+
+    // Inject the prompt now
+    session._injectPrompt(orchestratorPrompt);
+
+    team.mainAgentId = session.id;
+    team.agentIds = [session.id];
+    team.status = "running";
+    this._persistTeam(team);
+
+    return { team, session };
+  }
+
+  /**
+   * Update the model routing table for a team.
+   * modelRouting: { low: "model-id", medium: "model-id", high: "model-id" }
+   */
+  updateModelRouting(teamId, modelRouting) {
+    const team = this.teams.get(teamId);
+    if (!team) return null;
+    team.modelRouting = modelRouting;
+    this._persistTeam(team);
+    return team;
+  }
+
   destroy(teamId) {
     const team = this.teams.get(teamId);
     if (!team) return false;
 
-    // Kill all agent sessions
+    // Kill all agent sessions (only if running)
     for (const agentId of team.agentIds) {
       sessionManager.destroy(agentId);
     }
@@ -170,8 +368,10 @@ class TeamManager {
     } catch {}
 
     this.teams.delete(teamId);
+    this._unpersistTeam(teamId);
     return true;
   }
 }
 
+export { DEFAULT_MODEL_ROUTING };
 export default new TeamManager();
