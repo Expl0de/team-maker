@@ -68,6 +68,7 @@ class Session {
     this.role = role || null; // "main" | "agent"
     this.agentIndex = agentIndex || null;
     this.model = model || null;
+    this.initialPrompt = initialPrompt || null;
     this.status = "running";
     this.exitCode = null;
     this.createdAt = new Date();

@@ -245,6 +245,45 @@ class TeamManager {
     return true;
   }
 
+  restartAgent(teamId, agentId) {
+    const team = this.teams.get(teamId);
+    if (!team) return null;
+
+    const idx = team.agentIds.indexOf(agentId);
+    if (idx === -1) return null;
+
+    // Get the old session's info before destroying it
+    const oldSession = sessionManager.get(agentId);
+    if (!oldSession) return null;
+
+    const { name, initialPrompt, model, agentIndex } = oldSession;
+
+    // Destroy the old session
+    sessionManager.destroy(agentId);
+
+    // Ensure MCP config exists
+    const mcpConfigPath = `/tmp/team-maker-mcp-${teamId}.json`;
+    this._ensureMcpConfig(teamId, mcpConfigPath);
+
+    // Respawn with same parameters
+    const newSession = sessionManager.create({
+      name,
+      cwd: team.cwd,
+      autoAccept: true,
+      initialPrompt,
+      teamId,
+      role: "agent",
+      agentIndex,
+      mcpConfigPath,
+      model,
+    });
+
+    // Replace the old agent ID with the new one in the team
+    team.agentIds[idx] = newSession.id;
+    this._persistTeam(team);
+    return { oldId: agentId, newSession };
+  }
+
   getAgents(teamId) {
     const team = this.teams.get(teamId);
     if (!team) return null;

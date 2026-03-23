@@ -1005,6 +1005,7 @@ function createAgentNode(session) {
         <button class="node-kebab-btn">⋮</button>
         <div class="node-kebab-menu">
           <button class="kebab-item node-clear-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>Clear context</button>
+          <button class="kebab-item node-restart-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Restart agent</button>
           <button class="kebab-item node-close-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Close agent</button>
         </div>
       </div>
@@ -1027,6 +1028,11 @@ function createAgentNode(session) {
     e.stopPropagation();
     node.querySelector(".node-kebab-menu").classList.remove("open");
     clearSessionContext(session.id);
+  });
+  node.querySelector(".node-restart-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    node.querySelector(".node-kebab-menu").classList.remove("open");
+    restartAgent(session.id);
   });
   node.querySelector(".node-close-btn").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -2154,6 +2160,27 @@ async function clearSessionContext(sessionId) {
   }
 }
 
+async function restartAgent(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  if (!session.teamId) {
+    showToast("Can only restart team agents", "warning");
+    return;
+  }
+  try {
+    const resp = await fetchWithTimeout(`/api/teams/${session.teamId}/agents/${sessionId}/restart`, { method: "POST" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showToast(err.error || "Failed to restart agent", "error");
+      return;
+    }
+    showToast(`Restarting ${session.name}…`, "success");
+    // The WebSocket "agent-restarted" event will handle cleanup and reattach
+  } catch (err) {
+    showToast("Failed to restart agent: " + err.message, "error");
+  }
+}
+
 async function closeTab(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
@@ -2247,6 +2274,39 @@ function handleTeamUpdate(msg) {
         renderTeamFlowGraph();
       }
       statusText.textContent = `Agent "${msg.agent.name}" spawned in team`;
+      break;
+    }
+    case "agent-restarted": {
+      const team = teams.get(msg.teamId);
+      if (!team) break;
+      // Replace old ID with new in team's agentIds
+      const ridx = team.agentIds.indexOf(msg.oldAgentId);
+      if (ridx !== -1) {
+        team.agentIds[ridx] = msg.agent.id;
+      }
+      // Clean up the old session
+      const oldSession = sessions.get(msg.oldAgentId);
+      if (oldSession) {
+        const wasSelected = selectedFlowAgentId === msg.oldAgentId;
+        oldSession.ws.close();
+        oldSession.terminal.dispose();
+        oldSession.tabEl.remove();
+        oldSession.wrapperEl.remove();
+        const embedded = document.querySelector(`#team-console-area .terminal-wrapper-embedded[data-session-id="${msg.oldAgentId}"]`);
+        if (embedded) embedded.remove();
+        sessions.delete(msg.oldAgentId);
+        // Attach the new session
+        attachSession(msg.agent);
+        updateTeamBadge(msg.teamId);
+        updateSessionCount();
+        if (msg.teamId === activeTeamId && teamTabActive) {
+          renderTeamFlowGraph();
+          if (wasSelected) {
+            selectAgentInFlow(msg.agent.id);
+          }
+        }
+      }
+      statusText.textContent = `Agent "${msg.agent.name}" restarted`;
       break;
     }
     case "agent-removed": {

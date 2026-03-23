@@ -325,6 +325,30 @@ app.delete("/api/teams/:teamId/agents/:agentId", (req, res) => {
   res.json({ ok: true });
 });
 
+// Restart an agent: destroy and respawn with same prompt
+app.post("/api/teams/:teamId/agents/:agentId/restart", (req, res) => {
+  const result = teamManager.restartAgent(req.params.teamId, req.params.agentId);
+  if (!result) return res.status(404).json({ error: "Agent not found" });
+  broadcast({
+    type: "team-update",
+    teamId: req.params.teamId,
+    event: "agent-restarted",
+    oldAgentId: result.oldId,
+    agent: result.newSession.toJSON(),
+  });
+  // Notify the orchestrator (Agent 0) about the ID change so it can update cached references
+  const team = teamManager.get(req.params.teamId);
+  if (team && team.mainAgentId) {
+    const mainSession = sessionManager.get(team.mainAgentId);
+    if (mainSession) {
+      const notice = `\n⚠️ Agent "${result.newSession.name}" was restarted by the user. Its session ID changed from ${result.oldId} to ${result.newSession.id}. Update any cached references.`;
+      mainSession.injectInput(notice);
+      setTimeout(() => mainSession.injectInput("\r"), 300);
+    }
+  }
+  res.json({ ok: true, oldId: result.oldId, agent: result.newSession.toJSON() });
+});
+
 // P1-25: Reset idle timer for an agent (keep alive)
 app.post("/api/teams/:teamId/agents/:agentId/keep-alive", (req, res) => {
   const session = sessionManager.get(req.params.agentId);
