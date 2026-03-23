@@ -34,7 +34,7 @@ function stripAnsi(str) {
  */
 function getJsonlPath(cwd, sessionId) {
   const normalizedCwd = cwd.replace(/\/+$/, ""); // strip trailing slashes
-  const projectHash = "-" + normalizedCwd.replace(/^\//, "").replace(/\//g, "-");
+  const projectHash = "-" + normalizedCwd.replace(/^\//, "").replace(/[/.]/g, "-");
   return join(homedir(), ".claude", "projects", projectHash, `${sessionId}.jsonl`);
 }
 
