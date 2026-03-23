@@ -109,7 +109,7 @@ class Session {
       this._handleJsonlEvent(event);
     });
 
-    const claudePath = process.env.CLAUDE_PATH || "/Users/tung/.local/bin/claude";
+    const claudePath = process.env.CLAUDE_PATH || "claude";
     const args = ["--session-id", id];
     if (autoAccept) args.push("--permission-mode", "auto");
     if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
