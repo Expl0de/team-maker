@@ -22,6 +22,10 @@ const teamContexts = new Map(); // teamId -> entry[]
 // Track handled idle events to avoid duplicate toasts from multiple WebSocket connections
 const handledIdleEvents = new Set();
 
+// Team tab state
+let teamTabActive = false;
+let selectedFlowAgentId = null; // which agent is selected in the flow graph
+
 // Files tab state
 let filesTabActive = false;
 const teamFiles = new Map(); // teamId -> file[]
@@ -206,10 +210,19 @@ function handleQuestionAlert(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
   playAlertSound();
+  // Update tab dot
   const dot = session.tabEl.querySelector(".status-dot");
   dot.classList.add("question");
   if (sessionId === activeSessionId && document.hasFocus()) {
     setTimeout(() => dot.classList.remove("question"), 3000);
+  }
+  // Update flow graph node dot
+  const nodeDot = document.querySelector(`.agent-node[data-session-id="${sessionId}"] .node-status-dot`);
+  if (nodeDot) {
+    nodeDot.classList.add("question");
+    if (sessionId === selectedFlowAgentId && document.hasFocus()) {
+      setTimeout(() => nodeDot.classList.remove("question"), 3000);
+    }
   }
 }
 
@@ -224,6 +237,15 @@ function handleActivityUpdate(sessionId, active) {
     handledIdleEvents.delete(`${sessionId}:agent_idle_killed`);
   } else {
     dot.classList.remove("working");
+  }
+  // Update flow graph node dot
+  const nodeDot = document.querySelector(`.agent-node[data-session-id="${sessionId}"] .node-status-dot`);
+  if (nodeDot) {
+    if (active) {
+      nodeDot.classList.add("working");
+    } else {
+      nodeDot.classList.remove("working");
+    }
   }
 }
 
@@ -371,6 +393,7 @@ function updateTeamBadge(teamId) {
 
 function selectTeam(teamId) {
   activeTeamId = teamId;
+  selectedFlowAgentId = null;
 
   // Update sidebar active state
   teamList.querySelectorAll(".team-item").forEach((el) => {
@@ -381,115 +404,72 @@ function selectTeam(teamId) {
   const selectedTeam = teamId ? teams.get(teamId) : null;
   newAgentBtn.disabled = !teamId || (selectedTeam && selectedTeam.status === "stopped");
 
-  // Show/hide usage tab
-  const usageTab = tabBar.querySelector(".tab-usage");
-  if (teamId) {
-    if (!usageTab) {
-      createUsageTab();
-    } else {
-      usageTab.style.display = "";
+  // Create meta-tabs if needed
+  const tabConfigs = [
+    { cls: ".tab-team", create: createTeamTab },
+    { cls: ".tab-usage", create: createUsageTab },
+    { cls: ".tab-messages", create: createMessagesTab },
+    { cls: ".tab-tasks", create: createTasksTab },
+    { cls: ".tab-events", create: createEventsTab },
+    { cls: ".tab-context", create: createContextTab },
+    { cls: ".tab-files", create: createFilesTab },
+  ];
+  for (const { cls, create } of tabConfigs) {
+    const existing = tabBar.querySelector(cls);
+    if (teamId) {
+      if (!existing) create();
+      else existing.style.display = "";
+    } else if (existing) {
+      existing.style.display = "none";
     }
-  } else if (usageTab) {
-    usageTab.style.display = "none";
   }
 
-  // Show/hide messages tab
-  const messagesTab = tabBar.querySelector(".tab-messages");
-  if (teamId) {
-    if (!messagesTab) {
-      createMessagesTab();
-    } else {
-      messagesTab.style.display = "";
-    }
-  } else if (messagesTab) {
-    messagesTab.style.display = "none";
-  }
-
-  // Show/hide tasks tab
-  const tasksTab = tabBar.querySelector(".tab-tasks");
-  if (teamId) {
-    if (!tasksTab) {
-      createTasksTab();
-    } else {
-      tasksTab.style.display = "";
-    }
-  } else if (tasksTab) {
-    tasksTab.style.display = "none";
-  }
-
-  // Show/hide events tab
-  const eventsTab = tabBar.querySelector(".tab-events");
-  if (teamId) {
-    if (!eventsTab) {
-      createEventsTab();
-    } else {
-      eventsTab.style.display = "";
-    }
-  } else if (eventsTab) {
-    eventsTab.style.display = "none";
-  }
-
-  // Show/hide context tab
-  const contextTab = tabBar.querySelector(".tab-context");
-  if (teamId) {
-    if (!contextTab) {
-      createContextTab();
-    } else {
-      contextTab.style.display = "";
-    }
-  } else if (contextTab) {
-    contextTab.style.display = "none";
-  }
-
-  // Show/hide files tab
-  const filesTab = tabBar.querySelector(".tab-files");
-  if (teamId) {
-    if (!filesTab) {
-      createFilesTab();
-    } else {
-      filesTab.style.display = "";
-    }
-  } else if (filesTab) {
-    filesTab.style.display = "none";
-  }
-
-  // Show only tabs for this team, hide others
-  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context):not(.tab-files)").forEach((t) => {
-    const session = sessions.get(t.dataset.id);
-    t.style.display = (session && session.teamId === teamId) ? "" : "none";
+  // Hide all individual agent tabs (Team tab replaces them)
+  tabBar.querySelectorAll(".tab:not(.tab-team):not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context):not(.tab-files)").forEach((t) => {
+    t.style.display = "none";
   });
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#context-panel):not(#files-panel)").forEach((w) => {
-    const session = sessions.get(w.dataset.id);
-    if (!session || session.teamId !== teamId) {
-      w.classList.remove("active");
-    }
+  // Deactivate non-team terminal wrappers
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#context-panel):not(#files-panel):not(#events-panel):not(#team-panel)").forEach((w) => {
+    w.classList.remove("active");
   });
 
-  // If usage/messages/tasks/context/files tab was active, keep it; otherwise switch to an agent tab
+  // Clear embedded terminals from previous team's console area
+  const consoleArea = document.getElementById("team-console-area");
+  consoleArea.querySelectorAll(".terminal-wrapper-embedded").forEach((el) => {
+    // Move xterm DOM back to original wrapper before removing
+    const sid = el.dataset.sessionId;
+    const session = sessions.get(sid);
+    if (session) {
+      const xtermEl = el.querySelector(".xterm");
+      if (xtermEl) session.wrapperEl.appendChild(xtermEl);
+    }
+    el.remove();
+  });
+  const placeholder = document.getElementById("team-console-placeholder");
+  if (placeholder) placeholder.style.display = "";
+
+  // Decide which tab to show
   if (usageTabActive) {
     switchToUsageTab();
   } else if (tasksTabActive) {
     switchToTasksTab();
   } else if (messagesTabActive) {
     switchToMessagesTab();
+  } else if (eventsTabActive) {
+    switchToEventsTab();
   } else if (contextTabActive) {
     switchToContextTab();
   } else if (filesTabActive) {
     switchToFilesTab();
   } else {
-    // Switch to the first visible tab in this team, or the active one if it belongs
+    // Default to Team tab
     const team = teams.get(teamId);
     if (team && team.status === "stopped") {
       activeSessionId = null;
       emptyState.innerHTML = `<p>Team "${team.name}" is stopped</p><p>Click the <strong>&#8635;</strong> button in the sidebar to re-launch it</p>`;
       emptyState.style.display = "";
     } else if (team && team.agentIds.length > 0) {
-      const currentBelongsToTeam = activeSessionId && sessions.get(activeSessionId)?.teamId === teamId;
-      if (!currentBelongsToTeam) {
-        switchTab(team.agentIds[0]);
-      } else {
-        switchTab(activeSessionId);
-      }
+      switchToTeamTab();
       emptyState.style.display = "none";
     } else {
       activeSessionId = null;
@@ -547,6 +527,7 @@ function attachSession(data) {
     name: data.name,
     teamId: data.teamId,
     role: data.role,
+    agentIndex: data.agentIndex,
     status: data.status,
     terminal,
     fitAddon,
@@ -566,6 +547,12 @@ function attachSession(data) {
         if (msg.type === "exit") {
           session.status = "exited";
           tab.querySelector(".status-dot").classList.add("exited");
+          // Update flow graph node
+          const exitNodeDot = document.querySelector(`.agent-node[data-session-id="${data.id}"] .node-status-dot`);
+          if (exitNodeDot) {
+            exitNodeDot.classList.add("exited");
+            exitNodeDot.classList.remove("working", "question");
+          }
           statusText.textContent = `${data.name} exited (code ${msg.exitCode})`;
           return;
         }
@@ -639,9 +626,12 @@ function attachSession(data) {
 
   sessions.set(data.id, session);
 
-  // Hide tab if not in active team
-  if (data.teamId !== activeTeamId) {
-    tab.style.display = "none";
+  // Always hide individual agent tabs — Team tab flow graph replaces them
+  tab.style.display = "none";
+
+  // Update flow graph if this agent belongs to the active team
+  if (data.teamId === activeTeamId && teamTabActive) {
+    renderTeamFlowGraph();
   }
 
   return session;
@@ -666,6 +656,11 @@ function reconnect(sessionId) {
         if (msg.type === "exit") {
           session.status = "exited";
           session.tabEl.querySelector(".status-dot").classList.add("exited");
+          const exitNodeDot = document.querySelector(`.agent-node[data-session-id="${sessionId}"] .node-status-dot`);
+          if (exitNodeDot) {
+            exitNodeDot.classList.add("exited");
+            exitNodeDot.classList.remove("working", "question");
+          }
           return;
         }
         if (msg.type === "question") {
@@ -727,43 +722,23 @@ function switchTab(sessionId) {
   eventsTabActive = false;
   contextTabActive = false;
   filesTabActive = false;
+  teamTabActive = false;
 
-  // Deactivate usage tab and panel
-  const usageTab = tabBar.querySelector(".tab-usage");
-  if (usageTab) usageTab.classList.remove("active");
-  document.getElementById("usage-panel").classList.remove("active");
+  // Deactivate all meta-tabs
+  const metaTabs = [".tab-usage", ".tab-messages", ".tab-tasks", ".tab-events", ".tab-context", ".tab-files", ".tab-team"];
+  metaTabs.forEach((sel) => {
+    const t = tabBar.querySelector(sel);
+    if (t) t.classList.remove("active");
+  });
+  const metaPanels = ["usage-panel", "messages-panel", "tasks-panel", "events-panel", "context-panel", "files-panel", "team-panel"];
+  metaPanels.forEach((id) => document.getElementById(id).classList.remove("active"));
   stopUsageAutoRefresh();
 
-  // Deactivate messages tab and panel
-  const messagesTab = tabBar.querySelector(".tab-messages");
-  if (messagesTab) messagesTab.classList.remove("active");
-  document.getElementById("messages-panel").classList.remove("active");
-
-  // Deactivate tasks tab and panel
-  const tasksTab = tabBar.querySelector(".tab-tasks");
-  if (tasksTab) tasksTab.classList.remove("active");
-  document.getElementById("tasks-panel").classList.remove("active");
-
-  // Deactivate events tab and panel
-  const eventsTab = tabBar.querySelector(".tab-events");
-  if (eventsTab) eventsTab.classList.remove("active");
-  document.getElementById("events-panel").classList.remove("active");
-
-  // Deactivate context tab and panel
-  const contextTab = tabBar.querySelector(".tab-context");
-  if (contextTab) contextTab.classList.remove("active");
-  document.getElementById("context-panel").classList.remove("active");
-
-  // Deactivate files tab and panel
-  const filesTab = tabBar.querySelector(".tab-files");
-  if (filesTab) filesTab.classList.remove("active");
-  document.getElementById("files-panel").classList.remove("active");
-
-  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context):not(.tab-files)").forEach((t) => {
+  tabBar.querySelectorAll(".tab:not(.tab-usage):not(.tab-messages):not(.tab-tasks):not(.tab-events):not(.tab-context):not(.tab-files):not(.tab-team)").forEach((t) => {
     t.classList.toggle("active", t.dataset.id === sessionId);
   });
 
-  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#events-panel):not(#context-panel):not(#files-panel)").forEach((w) => {
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel):not(#messages-panel):not(#tasks-panel):not(#events-panel):not(#context-panel):not(#files-panel):not(#team-panel)").forEach((w) => {
     w.classList.toggle("active", w.dataset.id === sessionId);
   });
 
@@ -780,6 +755,204 @@ function switchTab(sessionId) {
   }
 }
 
+// --- Team tab (flow graph) ---
+
+function createTeamTab() {
+  const existing = tabBar.querySelector(".tab-team");
+  if (existing) existing.remove();
+
+  const tab = document.createElement("div");
+  tab.className = "tab tab-team";
+  tab.innerHTML = `<span class="team-tab-icon">🌐</span><span class="tab-name">Team</span>`;
+  tab.addEventListener("click", () => switchToTeamTab());
+
+  // Insert as first tab
+  tabBar.prepend(tab);
+  return tab;
+}
+
+function switchToTeamTab() {
+  teamTabActive = true;
+  usageTabActive = false;
+  messagesTabActive = false;
+  tasksTabActive = false;
+  eventsTabActive = false;
+  contextTabActive = false;
+  filesTabActive = false;
+  activeSessionId = null;
+
+  // Deactivate all other tabs and wrappers
+  tabBar.querySelectorAll(".tab:not(.tab-team)").forEach((t) => t.classList.remove("active"));
+  terminalContainer.querySelectorAll(".terminal-wrapper:not(#team-panel)").forEach((w) => w.classList.remove("active"));
+  stopUsageAutoRefresh();
+
+  // Activate team tab and panel
+  const teamTab = tabBar.querySelector(".tab-team");
+  if (teamTab) teamTab.classList.add("active");
+  document.getElementById("team-panel").classList.add("active");
+  emptyState.style.display = "none";
+
+  // Render flow graph
+  renderTeamFlowGraph();
+
+  // Auto-select main agent if nothing selected
+  if (!selectedFlowAgentId || !sessions.has(selectedFlowAgentId)) {
+    const team = activeTeamId ? teams.get(activeTeamId) : null;
+    if (team && team.agentIds.length > 0) {
+      selectAgentInFlow(team.agentIds[0]);
+    }
+  } else {
+    selectAgentInFlow(selectedFlowAgentId);
+  }
+}
+
+function renderTeamFlowGraph() {
+  const nodesContainer = document.getElementById("team-flow-nodes");
+  nodesContainer.innerHTML = "";
+
+  if (!activeTeamId) return;
+  const team = teams.get(activeTeamId);
+  if (!team) return;
+
+  let mainSession = null;
+  const agentSessions = [];
+
+  for (const agentId of team.agentIds) {
+    const session = sessions.get(agentId);
+    if (!session) continue;
+    if (session.role === "main") {
+      mainSession = session;
+    } else {
+      agentSessions.push(session);
+    }
+  }
+
+  // Render main node
+  if (mainSession) {
+    nodesContainer.appendChild(createAgentNode(mainSession));
+  }
+
+  // Render child agents with connectors
+  if (agentSessions.length > 0 && mainSession) {
+    // Vertical connector from main
+    const connector = document.createElement("div");
+    connector.className = "agent-connector";
+    nodesContainer.appendChild(connector);
+
+    if (agentSessions.length === 1) {
+      // Single child — just stack vertically
+      nodesContainer.appendChild(createAgentNode(agentSessions[0]));
+    } else {
+      // Multiple children — branch row
+      const branchRow = document.createElement("div");
+      branchRow.className = "agent-branch-row";
+      for (const s of agentSessions) {
+        const item = document.createElement("div");
+        item.className = "agent-branch-item";
+        const branchConn = document.createElement("div");
+        branchConn.className = "agent-connector";
+        item.appendChild(branchConn);
+        item.appendChild(createAgentNode(s));
+        branchRow.appendChild(item);
+      }
+      nodesContainer.appendChild(branchRow);
+    }
+  }
+}
+
+function createAgentNode(session) {
+  const node = document.createElement("div");
+  node.className = "agent-node" + (session.id === selectedFlowAgentId ? " selected" : "");
+  node.dataset.sessionId = session.id;
+
+  const isMain = session.role === "main";
+  const roleLabel = isMain ? "main" : (session.agentIndex || "?");
+  const roleClass = isMain ? "" : " agent";
+  const displayName = session.name.replace(/^Agent\s*\d+\s*[-–—]\s*/i, "");
+
+  // Status dot classes
+  const dotClasses = ["node-status-dot"];
+  if (session.status === "exited") dotClasses.push("exited");
+  // Check tab dot for working/question state (mirroring)
+  const tabDot = session.tabEl.querySelector(".status-dot");
+  if (tabDot) {
+    if (tabDot.classList.contains("working")) dotClasses.push("working");
+    if (tabDot.classList.contains("question")) dotClasses.push("question");
+  }
+
+  // Agent state badge
+  const agentState = agentStates.get(session.id);
+  let stateBadgeHtml = "";
+  if (agentState && agentState.state && agentState.state !== "starting" && agentState.state !== "idle") {
+    const stateText = agentState.state === "tool_calling" ? (agentState.lastToolCall?.name || "tool") : agentState.state;
+    stateBadgeHtml = `<span class="node-state-badge state-${agentState.state}">${stateText}</span>`;
+  }
+
+  node.innerHTML = `
+    <div class="agent-node-header">
+      <span class="${dotClasses.join(" ")}"></span>
+      <span class="node-role-badge${roleClass}">🤖 ${roleLabel}</span>
+      <span class="node-name" title="${escapeHtml(session.name)}">${escapeHtml(displayName)}</span>
+    </div>
+    <div class="agent-node-footer">
+      ${stateBadgeHtml}
+    </div>
+  `;
+
+  node.addEventListener("click", () => selectAgentInFlow(session.id));
+  return node;
+}
+
+function selectAgentInFlow(sessionId) {
+  selectedFlowAgentId = sessionId;
+
+  // Update node selection visual
+  document.querySelectorAll(".agent-node").forEach((n) => {
+    n.classList.toggle("selected", n.dataset.sessionId === sessionId);
+  });
+
+  const consoleArea = document.getElementById("team-console-area");
+  const placeholder = document.getElementById("team-console-placeholder");
+
+  // Hide all embedded terminals
+  consoleArea.querySelectorAll(".terminal-wrapper-embedded").forEach((w) => {
+    w.classList.remove("active");
+  });
+
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  // Check if we already moved this terminal into the console area
+  let embedded = consoleArea.querySelector(`.terminal-wrapper-embedded[data-session-id="${sessionId}"]`);
+  if (!embedded) {
+    // Create a new embedded wrapper and move the terminal DOM into it
+    embedded = document.createElement("div");
+    embedded.className = "terminal-wrapper-embedded";
+    embedded.dataset.sessionId = sessionId;
+
+    // Move the xterm DOM element from the original wrapper to here
+    const xtermScreen = session.wrapperEl.querySelector(".xterm");
+    if (xtermScreen) {
+      embedded.appendChild(xtermScreen);
+    }
+    consoleArea.appendChild(embedded);
+  }
+
+  embedded.classList.add("active");
+  if (placeholder) placeholder.style.display = "none";
+
+  // Clear question highlight on the selected node
+  const nodeDot = document.querySelector(`.agent-node[data-session-id="${sessionId}"] .node-status-dot`);
+  if (nodeDot) nodeDot.classList.remove("question");
+
+  // Fit terminal to new container
+  setTimeout(() => {
+    session.fitAddon.fit();
+    sendResize(session);
+    session.terminal.focus();
+  }, 50);
+}
+
 // --- Usage tab ---
 
 function createUsageTab() {
@@ -792,8 +965,13 @@ function createUsageTab() {
   tab.innerHTML = `<span class="usage-tab-icon">📊</span><span class="tab-name">Usage</span>`;
   tab.addEventListener("click", () => switchToUsageTab());
 
-  // Insert as first tab
-  tabBar.prepend(tab);
+  // Insert after team tab
+  const teamTab = tabBar.querySelector(".tab-team");
+  if (teamTab) {
+    teamTab.after(tab);
+  } else {
+    tabBar.prepend(tab);
+  }
   return tab;
 }
 
@@ -803,9 +981,10 @@ function switchToUsageTab() {
   tasksTabActive = false;
   eventsTabActive = false;
   filesTabActive = false;
+  teamTabActive = false;
   activeSessionId = null;
 
-  // Deactivate all agent tabs, messages tab, tasks tab, events tab, and wrappers
+  // Deactivate all other tabs and wrappers
   tabBar.querySelectorAll(".tab:not(.tab-usage)").forEach((t) => t.classList.remove("active"));
   terminalContainer.querySelectorAll(".terminal-wrapper:not(#usage-panel)").forEach((w) => w.classList.remove("active"));
 
@@ -847,6 +1026,7 @@ function switchToMessagesTab() {
   tasksTabActive = false;
   eventsTabActive = false;
   filesTabActive = false;
+  teamTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1006,6 +1186,7 @@ function switchToTasksTab() {
   messagesTabActive = false;
   eventsTabActive = false;
   filesTabActive = false;
+  teamTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1191,6 +1372,7 @@ function switchToEventsTab() {
   messagesTabActive = false;
   tasksTabActive = false;
   filesTabActive = false;
+  teamTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1365,7 +1547,6 @@ function handleAgentState(msg) {
   if (session && session.tabEl) {
     let badge = session.tabEl.querySelector(".agent-state-badge");
     if (state === "starting" || state === "idle") {
-      // Remove badge for non-interesting states
       if (badge) badge.remove();
     } else {
       if (!badge) {
@@ -1373,9 +1554,28 @@ function handleAgentState(msg) {
         badge.className = "agent-state-badge";
         session.tabEl.querySelector(".tab-name").after(badge);
       }
-      // Clear all state classes
       badge.className = "agent-state-badge state-" + state;
       badge.textContent = state === "tool_calling" ? (lastToolCall?.name || "tool") : state;
+    }
+  }
+
+  // Update flow graph node state badge
+  const node = document.querySelector(`.agent-node[data-session-id="${sessionId}"]`);
+  if (node) {
+    const footer = node.querySelector(".agent-node-footer");
+    if (footer) {
+      let nodeBadge = footer.querySelector(".node-state-badge");
+      if (state === "starting" || state === "idle") {
+        if (nodeBadge) nodeBadge.remove();
+      } else {
+        if (!nodeBadge) {
+          nodeBadge = document.createElement("span");
+          nodeBadge.className = "node-state-badge";
+          footer.appendChild(nodeBadge);
+        }
+        nodeBadge.className = "node-state-badge state-" + state;
+        nodeBadge.textContent = state === "tool_calling" ? (lastToolCall?.name || "tool") : state;
+      }
     }
   }
 }
@@ -1410,6 +1610,7 @@ function switchToContextTab() {
   tasksTabActive = false;
   eventsTabActive = false;
   filesTabActive = false;
+  teamTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1517,6 +1718,7 @@ function switchToFilesTab() {
   tasksTabActive = false;
   eventsTabActive = false;
   contextTabActive = false;
+  teamTabActive = false;
   activeSessionId = null;
 
   // Deactivate all other tabs and wrappers
@@ -1725,12 +1927,31 @@ async function closeTab(sessionId) {
   session.terminal.dispose();
   session.tabEl.remove();
   session.wrapperEl.remove();
+
+  // Clean up embedded terminal in team console area
+  const embedded = document.querySelector(`#team-console-area .terminal-wrapper-embedded[data-session-id="${sessionId}"]`);
+  if (embedded) embedded.remove();
+
   sessions.delete(sessionId);
 
   updateSessionCount();
 
-  if (activeSessionId === sessionId) {
-    // Find next tab in same team
+  // Refresh flow graph if needed
+  if (session.teamId === activeTeamId && teamTabActive) {
+    renderTeamFlowGraph();
+    // If we removed the selected agent, select another
+    if (selectedFlowAgentId === sessionId) {
+      selectedFlowAgentId = null;
+      const team = teams.get(activeTeamId);
+      const remaining = team ? team.agentIds.filter((id) => sessions.has(id)) : [];
+      if (remaining.length > 0) {
+        selectAgentInFlow(remaining[0]);
+      } else {
+        const placeholder = document.getElementById("team-console-placeholder");
+        if (placeholder) placeholder.style.display = "";
+      }
+    }
+  } else if (activeSessionId === sessionId) {
     const team = activeTeamId ? teams.get(activeTeamId) : null;
     const remaining = team ? team.agentIds.filter((id) => sessions.has(id)) : [];
     if (remaining.length > 0) {
@@ -1766,14 +1987,13 @@ function handleTeamUpdate(msg) {
       // Only attach if we don't already have it
       if (!sessions.has(msg.agent.id)) {
         attachSession(msg.agent);
-        // If this team is active, show the tab
-        if (msg.teamId === activeTeamId) {
-          const s = sessions.get(msg.agent.id);
-          if (s) s.tabEl.style.display = "";
-        }
       }
       updateTeamBadge(msg.teamId);
       updateSessionCount();
+      // Refresh flow graph if this is the active team and team tab is shown
+      if (msg.teamId === activeTeamId && teamTabActive) {
+        renderTeamFlowGraph();
+      }
       statusText.textContent = `Agent "${msg.agent.name}" spawned in team`;
       break;
     }
@@ -1784,7 +2004,10 @@ function handleTeamUpdate(msg) {
         if (idx !== -1) team.agentIds.splice(idx, 1);
         updateTeamBadge(msg.teamId);
       }
-      // Session cleanup handled by closeTab if initiated locally
+      // Refresh flow graph
+      if (msg.teamId === activeTeamId && teamTabActive) {
+        renderTeamFlowGraph();
+      }
       break;
     }
     case "team-relaunched": {
@@ -1820,9 +2043,12 @@ function handleTeamUpdate(msg) {
             s.terminal.dispose();
             s.tabEl.remove();
             s.wrapperEl.remove();
+            const embedded = document.querySelector(`#team-console-area .terminal-wrapper-embedded[data-session-id="${agentId}"]`);
+            if (embedded) embedded.remove();
             sessions.delete(agentId);
           }
         }
+        selectedFlowAgentId = null;
         teams.delete(msg.teamId);
         teamMessages.delete(msg.teamId);
         teamTasks.delete(msg.teamId);
@@ -2176,10 +2402,14 @@ async function spawnNewAgent() {
     updateTeamBadge(activeTeamId);
     updateSessionCount();
 
-    // Show and switch to the new agent
-    const s = sessions.get(data.id);
-    if (s) s.tabEl.style.display = "";
-    switchTab(data.id);
+    // If team tab is active, refresh flow and select the new agent
+    if (teamTabActive) {
+      renderTeamFlowGraph();
+      selectAgentInFlow(data.id);
+    } else {
+      switchToTeamTab();
+      selectAgentInFlow(data.id);
+    }
 
     statusText.textContent = `Agent "${name}" spawned`;
   } catch (err) {
@@ -2239,10 +2469,14 @@ async function deleteTeam(teamId) {
         s.terminal.dispose();
         s.tabEl.remove();
         s.wrapperEl.remove();
+        // Clean up embedded terminal
+        const embedded = document.querySelector(`#team-console-area .terminal-wrapper-embedded[data-session-id="${agentId}"]`);
+        if (embedded) embedded.remove();
         sessions.delete(agentId);
       }
     }
     teams.delete(teamId);
+    selectedFlowAgentId = null;
     const el = teamList.querySelector(`[data-team-id="${teamId}"]`);
     if (el) el.remove();
   }
@@ -2299,7 +2533,13 @@ async function loadExistingTeams() {
 
 // --- Window resize ---
 window.addEventListener("resize", () => {
-  if (activeSessionId) {
+  if (teamTabActive && selectedFlowAgentId) {
+    const session = sessions.get(selectedFlowAgentId);
+    if (session) {
+      session.fitAddon.fit();
+      sendResize(session);
+    }
+  } else if (activeSessionId) {
     const session = sessions.get(activeSessionId);
     if (session) {
       session.fitAddon.fit();

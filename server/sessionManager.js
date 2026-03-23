@@ -6,7 +6,7 @@ import { JsonlWatcher } from "./jsonlParser.js";
 
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
 const MAX_EVENTS = 500; // max structured events kept per session
-const PLAIN_BUFFER_SIZE = 2048; // rolling buffer for pattern detection
+const PLAIN_BUFFER_SIZE = 8192; // 8KB rolling buffer for pattern detection
 const PROMPT_INJECT_TIMEOUT = 15000; // fallback timeout if ready signal not detected
 const PROMPT_SETTLE_DELAY = 300; // delay between paste and Enter after ready detected
 const IDLE_WARN_MS = 5 * 60 * 1000; // 5 minutes idle → warning
@@ -43,14 +43,20 @@ function getJsonlPath(cwd, sessionId) {
 // so PTY regex matching remains necessary for these. JSONL-based state
 // tracking (AP3) handles all other agent state (working/idle/tool_calling).
 const QUESTION_PATTERNS = [
-  /do you want/i,
+  // Permission dialog keywords (Claude CLI TUI)
+  /do you want to/i,
   /allow once/i,
   /allow always/i,
   /\(y\/n\)/i,
-  /\byes\b.*\bno\b/i,
-  /\bdeny\b/i,
-  /\breject\b/i,
   /\ballow\b.*\bdeny\b/i,
+  /wants to/i,                    // "Claude wants to read/edit/write..."
+  /allow tool/i,                  // tool permission prompt
+  /run command/i,                 // bash command approval
+  /execute/i,                     // execution approval
+  /approve/i,                     // generic approval prompt
+  /permission/i,                  // "needs permission"
+  /\bproceed\b/i,                 // "proceed?" prompts
+  /\bconfirm\b/i,                 // confirmation dialogs
 ];
 
 class Session {
@@ -71,6 +77,7 @@ class Session {
     this.tokenUsage = { inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0, cost: 0, totalTokens: 0 };
     this._lastQuestionAlert = 0; // debounce timestamp
     this._plainBuffer = ""; // rolling buffer of stripped text for pattern matching
+    this._questionCheckTimer = null; // delayed check for split PTY chunks
     this._lastOutputTime = Date.now(); // track last PTY output for idle detection
     this._healthCheckInterval = null; // rare health-check ping for stuck agents
     this._active = false; // whether the session is actively producing output
@@ -86,6 +93,8 @@ class Session {
     this._eventListeners = new Set(); // callbacks for real-time event broadcast
     this._agentState = "starting"; // starting | working | idle | tool_calling | completed
     this._lastToolCall = null; // most recent tool call for display
+    this._pendingToolCalls = new Map(); // toolUseId → { timestamp, toolName }
+    this._permissionCheckTimer = null; // timer for stuck tool call heuristic
 
     // Idle timeout tracking (AP5-A: auto-kill idle agents)
     this._idleStartTime = null; // when agent entered idle state
@@ -160,20 +169,12 @@ class Session {
       }
 
       // Check for question/dialog patterns (debounced to 3s)
-      const now = Date.now();
-      if (now - this._lastQuestionAlert > 3000) {
-        const matched = QUESTION_PATTERNS.find((re) => re.test(this._plainBuffer));
-        if (matched) {
-          this._lastQuestionAlert = now;
-          // Clear buffer so same text doesn't re-trigger
-          this._plainBuffer = "";
-          for (const ws of this.clients) {
-            try {
-              ws.send(JSON.stringify({ type: "question", sessionId: this.id }));
-            } catch {}
-          }
-        }
-      }
+      this._checkForQuestion();
+      // Also schedule a delayed check to catch prompts split across PTY chunks
+      clearTimeout(this._questionCheckTimer);
+      this._questionCheckTimer = setTimeout(() => {
+        this._checkForQuestion();
+      }, 500);
 
       for (const ws of this.clients) {
         try {
@@ -288,9 +289,21 @@ class Session {
       case "tool_call":
         this._agentState = "tool_calling";
         this._lastToolCall = { name: event.toolName, input: event.input };
+        // Track this tool call as pending for permission detection
+        if (event.toolUseId) {
+          this._pendingToolCalls.set(event.toolUseId, {
+            timestamp: Date.now(),
+            toolName: event.toolName,
+          });
+          this._schedulePermissionCheck();
+        }
         break;
       case "tool_result":
         this._agentState = "working";
+        // Tool completed — remove from pending
+        if (event.toolUseId) {
+          this._pendingToolCalls.delete(event.toolUseId);
+        }
         break;
       case "assistant_message":
         this._agentState = "working";
@@ -356,6 +369,55 @@ class Session {
 
   getEvents() {
     return this._events;
+  }
+
+  /**
+   * Check the rolling plain-text buffer for question/permission patterns.
+   * Only inspects the tail of the buffer to reduce false positives from
+   * assistant text earlier in the output.
+   */
+  _checkForQuestion() {
+    const now = Date.now();
+    if (now - this._lastQuestionAlert < 3000) return; // debounce
+    const tailWindow = this._plainBuffer.slice(-500);
+    const matched = QUESTION_PATTERNS.find((re) => re.test(tailWindow));
+    if (matched) {
+      this._emitQuestionAlert();
+    }
+  }
+
+  /**
+   * Broadcast a question alert to all connected WebSocket clients.
+   * Debounced to avoid spamming (minimum 3s between alerts).
+   */
+  _emitQuestionAlert() {
+    const now = Date.now();
+    if (now - this._lastQuestionAlert < 3000) return; // debounce
+    this._lastQuestionAlert = now;
+    this._plainBuffer = ""; // Clear buffer so same text doesn't re-trigger
+    for (const ws of this.clients) {
+      try {
+        ws.send(JSON.stringify({ type: "question", sessionId: this.id }));
+      } catch {}
+    }
+  }
+
+  /**
+   * Schedule a check for stuck tool calls (JSONL-based permission detection).
+   * If a tool_call has no matching tool_result after 8 seconds, the agent
+   * is likely blocked on a permission dialog.
+   */
+  _schedulePermissionCheck() {
+    clearTimeout(this._permissionCheckTimer);
+    this._permissionCheckTimer = setTimeout(() => {
+      const now = Date.now();
+      for (const [, info] of this._pendingToolCalls) {
+        if (now - info.timestamp > 8000) {
+          this._emitQuestionAlert();
+          break;
+        }
+      }
+    }, 8000);
   }
 
   _broadcastStatus() {
@@ -475,6 +537,11 @@ class Session {
         clearInterval(this._idleCheckTimer);
         this._idleCheckTimer = null;
       }
+      clearTimeout(this._questionCheckTimer);
+      this._questionCheckTimer = null;
+      clearTimeout(this._permissionCheckTimer);
+      this._permissionCheckTimer = null;
+      this._pendingToolCalls.clear();
       this._jsonlWatcher.stop();
       this.pty.kill();
       this.status = "exited";
