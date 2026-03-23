@@ -3,6 +3,17 @@ import stateStore from "./stateStore.js";
 const MAX_TOTAL_BYTES = 500 * 1024; // 500KB total content cap
 const MAX_ENTRIES = 200;
 
+// P1-23: Better token estimation — code averages ~3.3 chars/token, prose ~4.5
+function estimateTokens(text) {
+  if (!text) return 0;
+  // Heuristic: count code-like indicators (braces, semicolons, indentation)
+  const codeSignals = (text.match(/[{}();=<>]/g) || []).length;
+  const codeRatio = codeSignals / Math.max(text.length, 1);
+  // Blend between code (~3.3) and prose (~4.5) based on code density
+  const charsPerToken = codeRatio > 0.03 ? 3.3 : 4.5;
+  return Math.ceil(text.length / charsPerToken);
+}
+
 class ContextStore {
   constructor() {
     // key -> { key, content, summary, storedBy, storedByName, teamId, tokens, lastUpdated, accessCount }
@@ -35,22 +46,17 @@ class ContextStore {
   }
 
   _evictLRU() {
-    // Evict least-recently-used entries until under budget
-    while (this._totalBytes() > MAX_TOTAL_BYTES || this._entries.size > MAX_ENTRIES) {
-      let oldest = null;
-      let oldestTime = Infinity;
-      for (const [key, entry] of this._entries) {
-        const t = new Date(entry.lastUpdated).getTime();
-        if (t < oldestTime) {
-          oldestTime = t;
-          oldest = key;
-        }
-      }
-      if (oldest) {
-        this._entries.delete(oldest);
-      } else {
-        break;
-      }
+    // P1-9: Only evict when actually over budget (skip linear scan otherwise)
+    if (this._entries.size <= MAX_ENTRIES && this._totalBytes() <= MAX_TOTAL_BYTES) return;
+
+    // Build sorted list once, then evict from oldest
+    const sorted = Array.from(this._entries.entries())
+      .sort((a, b) => new Date(a[1].lastUpdated).getTime() - new Date(b[1].lastUpdated).getTime());
+
+    let idx = 0;
+    while ((this._totalBytes() > MAX_TOTAL_BYTES || this._entries.size > MAX_ENTRIES) && idx < sorted.length) {
+      this._entries.delete(sorted[idx][0]);
+      idx++;
     }
   }
 
@@ -66,7 +72,7 @@ class ContextStore {
       storedBy: storedBy || null,
       storedByName: storedByName || null,
       teamId: teamId || null,
-      tokens: Math.ceil(content.length / 4), // rough estimate
+      tokens: estimateTokens(content), // P1-23: improved estimate
       lastUpdated: new Date().toISOString(),
       accessCount: existing ? existing.accessCount : 0,
     };

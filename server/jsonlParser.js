@@ -177,6 +177,8 @@ class JsonlWatcher {
     this._watcher = null;
     this._reading = false;
     this._pollTimer = null;
+    this._pollInterval = 3000; // P1-8: adaptive polling — starts at 3s
+    this._idlePollCount = 0; // consecutive polls with no new data
   }
 
   /**
@@ -202,8 +204,16 @@ class JsonlWatcher {
       // File doesn't exist yet — will be picked up by polling
     }
 
-    // Poll every 3 seconds as a fallback (more frequent than the old 5s usage polling)
-    this._pollTimer = setInterval(() => this._readNewLines(), 3000);
+    // P1-8: Adaptive polling — starts at 3s, backs off to 10s when idle
+    this._schedulePoll();
+  }
+
+  // P1-8: Schedule next poll with adaptive interval
+  _schedulePoll() {
+    if (this._pollTimer) clearTimeout(this._pollTimer);
+    this._pollTimer = setTimeout(() => {
+      this._readNewLines().then(() => this._schedulePoll());
+    }, this._pollInterval);
   }
 
   stop() {
@@ -212,7 +222,7 @@ class JsonlWatcher {
       this._watcher = null;
     }
     if (this._pollTimer) {
-      clearInterval(this._pollTimer);
+      clearTimeout(this._pollTimer);
       this._pollTimer = null;
     }
   }
@@ -230,6 +240,16 @@ class JsonlWatcher {
 
       const newContent = content.slice(this._bytesRead);
       this._bytesRead = content.length;
+
+      // P1-8: Adaptive backoff — speed up when active, slow down when idle
+      if (newContent.length === 0) {
+        this._idlePollCount++;
+        // Back off: 3s → 5s → 7s → 10s max
+        this._pollInterval = Math.min(10000, 3000 + this._idlePollCount * 1000);
+      } else {
+        this._idlePollCount = 0;
+        this._pollInterval = 3000; // Reset to fast polling on new data
+      }
 
       const lines = newContent.split("\n");
       for (const line of lines) {

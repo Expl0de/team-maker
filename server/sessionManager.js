@@ -101,6 +101,7 @@ class Session {
     this._idleWarned = false; // whether we've sent the 5min warning
     this._idleCheckTimer = null; // periodic idle check interval
     this._idleListeners = new Set(); // callbacks for idle events (warning/kill)
+    this._killed = false; // P1-3: flag to ignore PTY callbacks after kill
 
     // JSONL watcher replaces interval-based polling — watches file for appends
     this._jsonlWatcher = new JsonlWatcher(this._jsonlPath, (event) => {
@@ -138,6 +139,7 @@ class Session {
     }
 
     this.pty.onData((data) => {
+      if (this._killed) return; // P1-3: ignore data after kill
       this.usage.bytesOut += data.length;
       this._lastOutputTime = Date.now();
       this.scrollback += data;
@@ -184,6 +186,7 @@ class Session {
     });
 
     this.pty.onExit(({ exitCode }) => {
+      if (this._killed) return; // P1-3: ignore exit after kill
       this.status = "exited";
       this.exitCode = exitCode;
       this._agentState = "completed";
@@ -320,6 +323,7 @@ class Session {
     if (this._agentState === "idle" && prevState !== "idle") {
       this._idleStartTime = Date.now();
       this._idleWarned = false;
+
     } else if (this._agentState !== "idle") {
       this._idleStartTime = null;
       this._idleWarned = false;
@@ -495,6 +499,12 @@ class Session {
     }, startDelay);
   }
 
+  // P1-25: Reset idle timer (keep alive)
+  resetIdle() {
+    this._idleStartTime = null;
+    this._idleWarned = false;
+  }
+
   onIdleEvent(listener) {
     this._idleListeners.add(listener);
     return () => this._idleListeners.delete(listener);
@@ -527,8 +537,30 @@ class Session {
     }
   }
 
+  // P1-26: Clear agent context — sends /clear to CLI and resets local buffers
+  clearContext() {
+    const prevTokens = { ...this.tokenUsage };
+    if (this.status === "running") {
+      // Send Escape first to cancel any in-progress input, then /clear + Enter
+      this.pty.write("\x1b");
+      setTimeout(() => {
+        if (this.status === "running") {
+          this.pty.write("/clear\r");
+        }
+      }, 100);
+    }
+    // Reset local scrollback and plain buffer
+    this.scrollback = "";
+    this._plainBuffer = "";
+    // Reset idle tracking since context was just cleared
+    this._idleStartTime = null;
+    this._idleWarned = false;
+    return { tokenUsage: prevTokens };
+  }
+
   kill() {
     if (this.status === "running") {
+      this._killed = true; // P1-3: prevent callbacks from firing after kill
       if (this._healthCheckInterval) {
         clearInterval(this._healthCheckInterval);
         this._healthCheckInterval = null;

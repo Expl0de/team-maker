@@ -18,7 +18,7 @@
   </header>
   <div id="app-layout">
     <aside id="sidebar">
-      <div id="sidebar-header">Teams</div>
+      <div id="sidebar-header"><span>Teams</span><button id="import-team-btn" title="Import team from file">&#8613;</button></div>
       <div id="team-list"></div>
     </aside>
     <div id="main-content">
@@ -57,6 +57,7 @@
               <select id="events-filter-agent">
                 <option value="">All agents</option>
               </select>
+              <input id="events-filter-search" type="text" placeholder="Search events..." autocomplete="off" />
             </div>
           </div>
           <div id="events-panel-content">

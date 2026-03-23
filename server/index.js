@@ -3,7 +3,7 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve, relative } from "path";
-import { readFile } from "fs/promises";
+import { readFile, realpath, stat } from "fs/promises";
 import { execFile } from "child_process";
 import sessionManager from "./sessionManager.js";
 import teamManager from "./teamManager.js";
@@ -38,9 +38,17 @@ function broadcast(message) {
   for (const ws of allWsClients) {
     try {
       ws.send(payload);
-    } catch {}
+    } catch (err) {
+      // P1-4: Log broadcast failures instead of silently swallowing
+      console.debug(`[Broadcast] Failed to send to client: ${err.message}`);
+    }
   }
 }
+
+// P1-17: Health check endpoint
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true, uptime: process.uptime() });
+});
 
 // Browse for folder using native macOS Finder dialog
 app.get("/api/browse-folder", async (req, res) => {
@@ -58,8 +66,19 @@ app.get("/api/browse-folder", async (req, res) => {
 });
 
 // REST API
-app.post("/api/sessions", (req, res) => {
+app.post("/api/sessions", async (req, res) => {
   const { name, cwd, autoAccept, initialPrompt, model } = req.body || {};
+  // P1-19: Validate cwd exists and is a directory
+  if (cwd) {
+    try {
+      const st = await stat(cwd);
+      if (!st.isDirectory()) {
+        return res.status(400).json({ error: "cwd is not a directory" });
+      }
+    } catch {
+      return res.status(400).json({ error: "cwd does not exist or is not readable" });
+    }
+  }
   const session = sessionManager.create({ name, cwd, autoAccept, initialPrompt, model });
   res.json(session.toJSON());
 });
@@ -86,6 +105,16 @@ app.post("/api/sessions/:id/resize", (req, res) => {
   const { cols, rows } = req.body;
   session.resize(cols, rows);
   res.json({ ok: true });
+});
+
+// P1-26: Clear agent context (send /clear to PTY, reset scrollback)
+app.post("/api/sessions/:id/clear", (req, res) => {
+  const session = sessionManager.get(req.params.id);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  if (session.status !== "running") return res.status(400).json({ error: "Session is not running" });
+  const result = session.clearContext();
+  broadcast({ type: "context-cleared", sessionId: session.id, teamId: session.teamId, tokenUsage: result.tokenUsage });
+  res.json({ ok: true, ...result });
 });
 
 // Input injection (used by MCP send_message tool)
@@ -122,9 +151,27 @@ app.get("/api/builtin-roles", (req, res) => {
 });
 
 // Team API
-app.post("/api/teams", (req, res) => {
+app.post("/api/teams", async (req, res) => {
   const { name, cwd, prompt, roles, model, modelRouting } = req.body || {};
   if (!name || !prompt) return res.status(400).json({ error: "name and prompt are required" });
+  // P1-19: Validate cwd exists and is a directory
+  if (cwd) {
+    try {
+      const st = await stat(cwd);
+      if (!st.isDirectory()) {
+        return res.status(400).json({ error: "cwd is not a directory" });
+      }
+    } catch {
+      return res.status(400).json({ error: "cwd does not exist or is not readable" });
+    }
+  }
+  // P1-14: Reject excessively long prompts
+  if (typeof prompt === "string" && prompt.length > 5000) {
+    return res.status(400).json({ error: "Prompt too long (max 5000 characters)" });
+  }
+  if (typeof prompt === "string" && prompt.length > 2000) {
+    console.warn(`[Teams] Large prompt for "${name}": ${prompt.length} chars`);
+  }
   const { team, session } = teamManager.create({ name, cwd, prompt, roles, model, modelRouting });
   broadcast({ type: "team-update", teamId: team.id, event: "team-created", team: team.toJSON(), agent: session.toJSON() });
   res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
@@ -141,6 +188,7 @@ app.get("/api/teams/:teamId", (req, res) => {
 });
 
 app.delete("/api/teams/:teamId", (req, res) => {
+  // P1-10: Destroy agent sessions first (clears in-memory event buffers)
   const destroyed = teamManager.destroy(req.params.teamId);
   if (!destroyed) return res.status(404).json({ error: "Team not found" });
   messageQueue.clearTeam(req.params.teamId);
@@ -149,6 +197,51 @@ app.delete("/api/teams/:teamId", (req, res) => {
   stateStore.delete(`files.${req.params.teamId}`);
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "team-deleted" });
   res.json({ ok: true });
+});
+
+// P1-24: Export team config
+app.get("/api/teams/:teamId/export", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  res.json({
+    _format: "team-maker-export-v1",
+    name: team.name,
+    cwd: team.cwd,
+    prompt: team.prompt,
+    roles: team.roles,
+    model: team.model,
+    modelRouting: team.modelRouting,
+    exportedAt: new Date().toISOString(),
+  });
+});
+
+// P1-24: Import team config (creates a new team from exported data)
+app.post("/api/teams/import", async (req, res) => {
+  const data = req.body;
+  if (!data || !data.name || !data.prompt) {
+    return res.status(400).json({ error: "Invalid import data: name and prompt required" });
+  }
+  // Validate cwd if present
+  if (data.cwd) {
+    try {
+      const st = await stat(data.cwd);
+      if (!st.isDirectory()) {
+        return res.status(400).json({ error: "Exported cwd is not a directory on this machine" });
+      }
+    } catch {
+      return res.status(400).json({ error: "Exported cwd does not exist on this machine" });
+    }
+  }
+  const { team, session } = teamManager.create({
+    name: data.name,
+    cwd: data.cwd,
+    prompt: data.prompt,
+    roles: data.roles,
+    model: data.model,
+    modelRouting: data.modelRouting,
+  });
+  broadcast({ type: "team-update", teamId: team.id, event: "team-created", team: team.toJSON(), agent: session.toJSON() });
+  res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
 });
 
 app.post("/api/teams/:teamId/relaunch", (req, res) => {
@@ -229,6 +322,14 @@ app.delete("/api/teams/:teamId/agents/:agentId", (req, res) => {
   const removed = teamManager.removeAgent(req.params.teamId, req.params.agentId);
   if (!removed) return res.status(404).json({ error: "Agent not found" });
   broadcast({ type: "team-update", teamId: req.params.teamId, event: "agent-removed", agentId: req.params.agentId });
+  res.json({ ok: true });
+});
+
+// P1-25: Reset idle timer for an agent (keep alive)
+app.post("/api/teams/:teamId/agents/:agentId/keep-alive", (req, res) => {
+  const session = sessionManager.get(req.params.agentId);
+  if (!session) return res.status(404).json({ error: "Agent not found" });
+  session.resetIdle();
   res.json({ ok: true });
 });
 
@@ -400,7 +501,7 @@ app.get("/api/teams/:teamId/files/read", async (req, res) => {
   const filePath = req.query.path;
   if (!filePath) return res.status(400).json({ error: "path parameter required" });
 
-  // Validate the path is within the team's working directory
+  // P1-13: Validate the path is within the team's working directory (resolve symlinks)
   const resolved = resolve(filePath);
   const teamCwd = resolve(team.cwd);
   if (!resolved.startsWith(teamCwd)) {
@@ -408,7 +509,13 @@ app.get("/api/teams/:teamId/files/read", async (req, res) => {
   }
 
   try {
-    const content = await readFile(resolved, "utf-8");
+    // Resolve symlinks to prevent traversal via symlink chains
+    const real = await realpath(resolved);
+    const realCwd = await realpath(teamCwd);
+    if (!real.startsWith(realCwd)) {
+      return res.status(403).json({ error: "Access denied: path outside team directory" });
+    }
+    const content = await readFile(real, "utf-8");
     res.json({ path: filePath, content });
   } catch (err) {
     if (err.code === "ENOENT") {
@@ -583,6 +690,7 @@ sessionManager.onIdleEvent((event) => {
   }
 });
 
+
 // Broadcast task events over WebSocket for real-time UI updates
 taskBoard.onTaskEvent((event, task) => {
   broadcast({
@@ -634,6 +742,8 @@ wss.on("connection", (ws) => {
   allWsClients.add(ws);
   let attachedSession = null;
 
+  let pendingResize = null; // P1-20: buffer resize until session is attached
+
   ws.on("message", (raw) => {
     let msg;
     try {
@@ -662,11 +772,21 @@ wss.on("connection", (ws) => {
         ws.send(JSON.stringify({ type: "attached", sessionId: session.id }));
         // Send current activity state so the client shows the correct indicator
         ws.send(JSON.stringify({ type: "activity", sessionId: session.id, active: session._active }));
+        // Send current agent state so client can show/remove starting overlay
+        ws.send(JSON.stringify({ type: "agent_state", sessionId: session.id, state: session._agentState, lastToolCall: session._lastToolCall }));
+        // P1-20: Apply any buffered resize that arrived before attach
+        if (pendingResize) {
+          session.resize(pendingResize.cols, pendingResize.rows);
+          pendingResize = null;
+        }
         break;
       }
       case "resize": {
         if (attachedSession) {
           attachedSession.resize(msg.cols, msg.rows);
+        } else {
+          // P1-20: Buffer resize for when session attaches
+          pendingResize = { cols: msg.cols, rows: msg.rows };
         }
         break;
       }
@@ -692,10 +812,27 @@ server.listen(PORT, () => {
   console.log(`Team Maker running at http://localhost:${PORT}`);
 });
 
-// Flush state to disk on shutdown so debounced writes aren't lost
+// P1-18: Graceful shutdown — kill PTY processes, flush state, then exit
 function onShutdown() {
-  console.log("[Server] Shutting down, flushing state...");
-  // Mark all running teams as stopped
+  console.log("[Server] Shutting down...");
+
+  // Kill all active PTY sessions
+  const allSessions = sessionManager.list();
+  for (const s of allSessions) {
+    try {
+      sessionManager.destroy(s.id);
+      console.log(`[Server] Killed session ${s.id} (${s.name})`);
+    } catch (err) {
+      console.error(`[Server] Failed to kill session ${s.id}:`, err.message);
+    }
+  }
+
+  // Close all WebSocket connections
+  for (const ws of allWsClients) {
+    try { ws.close(1001, "Server shutting down"); } catch {}
+  }
+
+  // Mark all running teams as stopped and flush state
   for (const team of teamManager.list()) {
     if (team.status === "running") {
       const t = teamManager.get(team.id);
@@ -715,7 +852,9 @@ function onShutdown() {
     }
   }
   stateStore.saveNow();
-  process.exit(0);
+
+  // Give a moment for cleanup, then exit
+  setTimeout(() => process.exit(0), 500);
 }
 process.on("SIGINT", onShutdown);
 process.on("SIGTERM", onShutdown);

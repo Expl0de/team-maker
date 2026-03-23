@@ -22,6 +22,37 @@ const teamContexts = new Map(); // teamId -> entry[]
 // Track handled idle events to avoid duplicate toasts from multiple WebSocket connections
 const handledIdleEvents = new Set();
 
+// P1-21: Persistent tab selection helpers
+function getActiveTabName() {
+  if (teamTabActive) return "team";
+  if (usageTabActive) return "usage";
+  if (messagesTabActive) return "messages";
+  if (tasksTabActive) return "tasks";
+  if (eventsTabActive) return "events";
+  if (contextTabActive) return "context";
+  if (filesTabActive) return "files";
+  if (activeSessionId) return `session:${activeSessionId}`;
+  return "team";
+}
+
+function saveTabState() {
+  try {
+    localStorage.setItem("tm_activeTeamId", activeTeamId || "");
+    localStorage.setItem("tm_activeTab", getActiveTabName());
+  } catch (_) { /* localStorage unavailable */ }
+}
+
+function getSavedTabState() {
+  try {
+    return {
+      teamId: localStorage.getItem("tm_activeTeamId") || null,
+      tab: localStorage.getItem("tm_activeTab") || "team",
+    };
+  } catch (_) {
+    return { teamId: null, tab: "team" };
+  }
+}
+
 // Team tab state
 let teamTabActive = false;
 let selectedFlowAgentId = null; // which agent is selected in the flow graph
@@ -41,6 +72,15 @@ let editingRoleIndex = -1;
 let savedTemplates = [];
 let builtinRoles = [];
 let extraRoles = [];
+
+// --- P1-12: Fetch with timeout wrapper ---
+
+function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
 
 // --- Usage formatting helpers ---
 
@@ -164,7 +204,7 @@ async function refreshUsagePanel() {
   if (!activeTeamId) return;
   const panel = document.getElementById("usage-panel-content");
   try {
-    const res = await fetch(`/api/teams/${activeTeamId}/usage`);
+    const res = await fetchWithTimeout(`/api/teams/${activeTeamId}/usage`);
     if (!res.ok) throw new Error("Team not found");
     const data = await res.json();
     panel.innerHTML = renderUsageSummaryHTML(data.totals) + renderUsageAgentTableHTML(data.agents);
@@ -176,7 +216,7 @@ async function refreshUsagePanel() {
 async function refreshSidebarTokens() {
   for (const [teamId, team] of teams) {
     try {
-      const res = await fetch(`/api/teams/${teamId}/usage`);
+      const res = await fetchWithTimeout(`/api/teams/${teamId}/usage`);
       if (!res.ok) continue;
       const data = await res.json();
       const detailedTokens = data.totals.inputTokens + data.totals.outputTokens;
@@ -255,6 +295,8 @@ const terminalContainer = document.getElementById("terminal-container");
 const emptyState = document.getElementById("empty-state");
 const newTeamBtn = document.getElementById("new-team-btn");
 const newAgentBtn = document.getElementById("new-agent-btn");
+const importTeamBtn = document.getElementById("import-team-btn");
+importTeamBtn.addEventListener("click", () => importTeam());
 const sessionCount = document.getElementById("session-count");
 const statusText = document.getElementById("status-text");
 const teamList = document.getElementById("team-list");
@@ -359,18 +401,23 @@ function renderTeamItem(team) {
       <span class="team-item-tokens"></span>
     </div>
     <div class="team-item-actions">
+      <button class="export-team-btn" title="Export team config">&#8615;</button>
       ${isStopped ? '<button class="relaunch-team-btn" title="Re-launch team">&#8635;</button>' : ""}
       <button class="delete-team-btn" title="Delete team">&times;</button>
     </div>
   `;
   el.addEventListener("click", (e) => {
-    if (!e.target.classList.contains("delete-team-btn") && !e.target.classList.contains("relaunch-team-btn")) {
+    if (!e.target.classList.contains("delete-team-btn") && !e.target.classList.contains("relaunch-team-btn") && !e.target.classList.contains("export-team-btn")) {
       selectTeam(team.id);
     }
   });
   el.querySelector(".delete-team-btn").addEventListener("click", (e) => {
     e.stopPropagation();
     deleteTeam(team.id);
+  });
+  el.querySelector(".export-team-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    exportTeam(team.id);
   });
   const relaunchBtn = el.querySelector(".relaunch-team-btn");
   if (relaunchBtn) {
@@ -394,6 +441,7 @@ function updateTeamBadge(teamId) {
 function selectTeam(teamId) {
   activeTeamId = teamId;
   selectedFlowAgentId = null;
+  saveTabState(); // P1-21
 
   // Update sidebar active state
   teamList.querySelectorAll(".team-item").forEach((el) => {
@@ -500,13 +548,36 @@ function attachSession(data) {
     <span class="status-dot ${data.status === "exited" ? "exited" : ""}"></span>
     ${roleHtml}
     <span class="tab-name">${displayName}</span>
-    <button class="close-btn" title="Close agent">&times;</button>
+    <div class="tab-kebab" title="Actions">
+      <button class="kebab-btn">⋮</button>
+      <div class="kebab-menu">
+        <button class="kebab-item clear-context-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>Clear context</button>
+        <button class="kebab-item close-agent-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Close agent</button>
+      </div>
+    </div>
   `;
   tab.addEventListener("click", (e) => {
-    if (!e.target.classList.contains("close-btn")) switchTab(data.id);
+    if (e.target.closest(".tab-kebab")) return;
+    switchTab(data.id);
   });
-  tab.querySelector(".close-btn").addEventListener("click", (e) => {
+  // Kebab menu toggle
+  tab.querySelector(".kebab-btn").addEventListener("click", (e) => {
     e.stopPropagation();
+    const menu = tab.querySelector(".kebab-menu");
+    // Close all other open kebab menus first
+    document.querySelectorAll(".kebab-menu.open").forEach((m) => {
+      if (m !== menu) m.classList.remove("open");
+    });
+    menu.classList.toggle("open");
+  });
+  tab.querySelector(".clear-context-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    tab.querySelector(".kebab-menu").classList.remove("open");
+    clearSessionContext(data.id);
+  });
+  tab.querySelector(".close-agent-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    tab.querySelector(".kebab-menu").classList.remove("open");
     closeTab(data.id);
   });
   tabBar.appendChild(tab);
@@ -518,6 +589,18 @@ function attachSession(data) {
   terminalContainer.appendChild(wrapper);
 
   const { terminal, fitAddon } = createTerminal(wrapper);
+
+  // Add starting overlay if agent is still initializing (blocks input)
+  const isStarting = !data.agentState || data.agentState === "starting";
+  if (isStarting) {
+    const overlay = document.createElement("div");
+    overlay.className = "starting-overlay";
+    overlay.innerHTML = `
+      <div class="starting-spinner"></div>
+      <div class="starting-text">Agent is starting…</div>
+    `;
+    wrapper.appendChild(overlay);
+  }
 
   // Connect WebSocket
   const ws = new WebSocket(getWsUrl());
@@ -604,8 +687,11 @@ function attachSession(data) {
           handleTeamContextEvent(msg);
           return;
         }
-      } catch {
-        // Not JSON — terminal data
+      } catch (e) {
+        // P1-5: Log parse/handler errors; if not a JSON parse error, it's a real bug
+        if (!(e instanceof SyntaxError)) {
+          console.warn("[WS] Error handling message:", e);
+        }
       }
     }
     terminal.write(event.data);
@@ -619,6 +705,8 @@ function attachSession(data) {
   };
 
   terminal.onData((input) => {
+    // Block input while starting overlay is visible
+    if (wrapper.querySelector(".starting-overlay")) return;
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "input", data: input }));
     }
@@ -647,6 +735,17 @@ function reconnect(sessionId) {
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "attach", sessionId }));
     statusText.textContent = `Reconnected to ${session.name}`;
+
+    // P1-1: Refresh state after reconnect to avoid stale data
+    if (session.teamId) {
+      refreshSidebarTokens();
+      if (usageTabActive && activeTeamId === session.teamId) refreshUsagePanel();
+      if (eventsTabActive && activeTeamId === session.teamId) loadTeamEvents(session.teamId);
+      if (contextTabActive && activeTeamId === session.teamId) loadTeamContext(session.teamId);
+      if (filesTabActive && activeTeamId === session.teamId) loadTeamFiles(session.teamId);
+      if (messagesTabActive && activeTeamId === session.teamId) loadTeamMessages(session.teamId);
+      if (tasksTabActive && activeTeamId === session.teamId) loadTeamTasks(session.teamId);
+    }
   };
 
   ws.onmessage = (event) => {
@@ -696,7 +795,10 @@ function reconnect(sessionId) {
           return;
         }
         if (msg.type === "attached" || msg.type === "error") return;
-      } catch {}
+      } catch (e) {
+        // P1-5: Log parse/handler errors instead of swallowing silently
+        console.warn("[WS reconnect] Error handling message:", e);
+      }
     }
     session.terminal.write(event.data);
   };
@@ -708,6 +810,10 @@ function reconnect(sessionId) {
   };
 
   session.terminal.onData((input) => {
+    // Block input while starting overlay is visible
+    if (session.wrapperEl.querySelector(".starting-overlay")) return;
+    const embeddedEl = document.querySelector(`#team-console-area .terminal-wrapper-embedded[data-session-id="${sessionId}"] .starting-overlay`);
+    if (embeddedEl) return;
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "input", data: input }));
     }
@@ -753,6 +859,7 @@ function switchTab(sessionId) {
       session.terminal.focus();
     }, 50);
   }
+  saveTabState(); // P1-21
 }
 
 // --- Team tab (flow graph) ---
@@ -804,6 +911,7 @@ function switchToTeamTab() {
   } else {
     selectAgentInFlow(selectedFlowAgentId);
   }
+  saveTabState(); // P1-21
 }
 
 function renderTeamFlowGraph() {
@@ -893,13 +1001,43 @@ function createAgentNode(session) {
       <span class="${dotClasses.join(" ")}"></span>
       <span class="node-role-badge${roleClass}">🤖 ${roleLabel}</span>
       <span class="node-name" title="${escapeHtml(session.name)}">${escapeHtml(displayName)}</span>
+      <div class="node-kebab" title="Actions">
+        <button class="node-kebab-btn">⋮</button>
+        <div class="node-kebab-menu">
+          <button class="kebab-item node-clear-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>Clear context</button>
+          <button class="kebab-item node-close-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Close agent</button>
+        </div>
+      </div>
     </div>
     <div class="agent-node-footer">
       ${stateBadgeHtml}
     </div>
   `;
 
-  node.addEventListener("click", () => selectAgentInFlow(session.id));
+  // Kebab menu on agent node
+  node.querySelector(".node-kebab-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const menu = node.querySelector(".node-kebab-menu");
+    document.querySelectorAll(".node-kebab-menu.open, .kebab-menu.open").forEach((m) => {
+      if (m !== menu) m.classList.remove("open");
+    });
+    menu.classList.toggle("open");
+  });
+  node.querySelector(".node-clear-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    node.querySelector(".node-kebab-menu").classList.remove("open");
+    clearSessionContext(session.id);
+  });
+  node.querySelector(".node-close-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    node.querySelector(".node-kebab-menu").classList.remove("open");
+    closeTab(session.id);
+  });
+
+  node.addEventListener("click", (e) => {
+    if (e.target.closest(".node-kebab")) return;
+    selectAgentInFlow(session.id);
+  });
   return node;
 }
 
@@ -934,6 +1072,11 @@ function selectAgentInFlow(sessionId) {
     const xtermScreen = session.wrapperEl.querySelector(".xterm");
     if (xtermScreen) {
       embedded.appendChild(xtermScreen);
+    }
+    // Also move starting overlay if present
+    const startingOverlay = session.wrapperEl.querySelector(".starting-overlay");
+    if (startingOverlay) {
+      embedded.appendChild(startingOverlay);
     }
     consoleArea.appendChild(embedded);
   }
@@ -997,6 +1140,7 @@ function switchToUsageTab() {
   // Fetch and render usage data
   refreshUsagePanel();
   startUsageAutoRefresh();
+  saveTabState(); // P1-21
 }
 
 // --- Messages tab ---
@@ -1047,11 +1191,12 @@ function switchToMessagesTab() {
   if (activeTeamId) {
     loadTeamMessages(activeTeamId);
   }
+  saveTabState(); // P1-21
 }
 
 async function loadTeamMessages(teamId) {
   try {
-    const res = await fetch(`/api/teams/${teamId}/messages`);
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/messages`);
     const messages = await res.json();
     teamMessages.set(teamId, messages);
     renderMessagesPanel(messages);
@@ -1204,11 +1349,12 @@ function switchToTasksTab() {
   if (activeTeamId) {
     loadTeamTasks(activeTeamId);
   }
+  saveTabState(); // P1-21
 }
 
 async function loadTeamTasks(teamId) {
   try {
-    const res = await fetch(`/api/teams/${teamId}/tasks`);
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/tasks`);
     const data = await res.json();
     teamTasks.set(teamId, data.tasks);
     renderTasksPanel(data.tasks, data.summary);
@@ -1261,7 +1407,7 @@ function renderTasksPanel(tasks, summary) {
       const taskId = e.target.dataset.taskId;
       const teamId = e.target.dataset.teamId;
       try {
-        await fetch(`/api/teams/${teamId}/tasks/${taskId}/retry`, { method: "POST" });
+        await fetchWithTimeout(`/api/teams/${teamId}/tasks/${taskId}/retry`, { method: "POST" });
         loadTeamTasks(teamId);
       } catch {}
     });
@@ -1390,11 +1536,12 @@ function switchToEventsTab() {
   if (activeTeamId) {
     loadTeamEvents(activeTeamId);
   }
+  saveTabState(); // P1-21
 }
 
 async function loadTeamEvents(teamId) {
   try {
-    const res = await fetch(`/api/teams/${teamId}/events`);
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/events`);
     const data = await res.json();
     teamEvents.set(teamId, data.events);
     renderEventsPanel(data.events);
@@ -1426,9 +1573,26 @@ function populateEventsAgentFilter(teamId) {
 function getFilteredEvents(events) {
   const typeFilter = document.getElementById("events-filter-type").value;
   const agentFilter = document.getElementById("events-filter-agent").value;
+  const searchFilter = (document.getElementById("events-filter-search").value || "").toLowerCase().trim();
   let filtered = events;
   if (typeFilter) filtered = filtered.filter((e) => e.type === typeFilter);
   if (agentFilter) filtered = filtered.filter((e) => e.sessionId === agentFilter);
+  if (searchFilter) {
+    filtered = filtered.filter((e) => {
+      const haystack = [
+        e.toolName || "",
+        e.sessionName || "",
+        e.text || "",
+        e.contentPreview || "",
+        e.input?.file_path || "",
+        e.input?.command || "",
+        e.input?.pattern || "",
+        e.input?.description || "",
+        e.model || "",
+      ].join(" ").toLowerCase();
+      return haystack.includes(searchFilter);
+    });
+  }
   return filtered;
 }
 
@@ -1542,6 +1706,19 @@ function handleAgentState(msg) {
   const { sessionId, state, lastToolCall } = msg;
   agentStates.set(sessionId, { state, lastToolCall });
 
+  // Remove starting overlay when agent is no longer starting
+  if (state !== "starting") {
+    const session = sessions.get(sessionId);
+    if (session) {
+      // Remove overlay from original wrapper
+      const overlay = session.wrapperEl.querySelector(".starting-overlay");
+      if (overlay) overlay.remove();
+      // Also remove from embedded wrapper in team console
+      const embedded = document.querySelector(`#team-console-area .terminal-wrapper-embedded[data-session-id="${sessionId}"] .starting-overlay`);
+      if (embedded) embedded.remove();
+    }
+  }
+
   // Update tab badge if session exists
   const session = sessions.get(sessionId);
   if (session && session.tabEl) {
@@ -1628,11 +1805,12 @@ function switchToContextTab() {
   if (activeTeamId) {
     loadTeamContext(activeTeamId);
   }
+  saveTabState(); // P1-21
 }
 
 async function loadTeamContext(teamId) {
   try {
-    const res = await fetch(`/api/teams/${teamId}/context`);
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/context`);
     const data = await res.json();
     teamContexts.set(teamId, data.entries);
     renderContextPanel(data.entries, data.stats);
@@ -1736,11 +1914,12 @@ function switchToFilesTab() {
   if (activeTeamId) {
     loadTeamFiles(activeTeamId);
   }
+  saveTabState(); // P1-21
 }
 
 async function loadTeamFiles(teamId) {
   try {
-    const res = await fetch(`/api/teams/${teamId}/files`);
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/files`);
     const data = await res.json();
     teamFiles.set(teamId, data.files || []);
     renderFilesPanel(data.files || []);
@@ -1782,7 +1961,7 @@ async function viewFile(filePath) {
   panel.innerHTML = '<div class="files-empty">Loading file...</div>';
 
   try {
-    const res = await fetch(`/api/teams/${activeTeamId}/files/read?path=${encodeURIComponent(filePath)}`);
+    const res = await fetchWithTimeout(`/api/teams/${activeTeamId}/files/read?path=${encodeURIComponent(filePath)}`);
     if (!res.ok) {
       const err = await res.json();
       panel.innerHTML = `<div class="files-empty">${escapeHtml(err.error || "Failed to read file")}</div>`;
@@ -1820,6 +1999,7 @@ async function viewFile(filePath) {
 
 // --- Agent idle events (AP5-A) ---
 
+
 function handleAgentIdleEvent(msg) {
   const event = msg.event;
   const name = event.sessionName || "Agent";
@@ -1830,8 +2010,13 @@ function handleAgentIdleEvent(msg) {
   handledIdleEvents.add(dedupeKey);
 
   if (event.type === "agent_idle_warning") {
-    // Dim the tab and show idle badge
+    // P1-16: Don't show idle toast for already-stopped teams
     const session = sessions.get(event.sessionId);
+    if (session && session.teamId) {
+      const team = teams.get(session.teamId);
+      if (team && team.status === "stopped") return;
+    }
+    // Dim the tab and show idle badge
     if (session && session.tabEl) {
       session.tabEl.classList.add("tab-idle");
       let badge = session.tabEl.querySelector(".agent-state-badge");
@@ -1843,20 +2028,48 @@ function handleAgentIdleEvent(msg) {
       badge.className = "agent-state-badge state-idle";
       badge.textContent = "idle";
     }
-    showToast(`${name} has been idle for 5+ minutes. Will auto-stop in 5 minutes.`, "warning");
+    // P1-25: Include "Keep alive" button to dismiss idle timer
+    const sessionId = event.sessionId;
+    const teamId = session?.teamId;
+    showToast(`${name} has been idle for 5+ minutes. Will auto-stop in 5 minutes.`, "warning", {
+      actionLabel: "Keep alive",
+      action: () => {
+        if (teamId && sessionId) {
+          fetchWithTimeout(`/api/teams/${teamId}/agents/${sessionId}/keep-alive`, { method: "POST" })
+            .then(() => {
+              // Clear idle UI state
+              const s = sessions.get(sessionId);
+              if (s && s.tabEl) {
+                s.tabEl.classList.remove("tab-idle");
+                const badge = s.tabEl.querySelector(".agent-state-badge");
+                if (badge) badge.remove();
+              }
+              handledIdleEvents.delete(`${sessionId}:agent_idle_warning`);
+              handledIdleEvents.delete(`${sessionId}:agent_idle_killed`);
+              showToast(`${name} kept alive`, "success");
+            })
+            .catch(() => showToast("Failed to keep alive", "error"));
+        }
+      },
+    });
   }
 
   if (event.type === "agent_idle_killed") {
+    // P1-16: Don't show idle kill toast for already-stopped teams
+    const killedSession = sessions.get(event.sessionId);
+    if (killedSession && killedSession.teamId) {
+      const team = teams.get(killedSession.teamId);
+      if (team && team.status === "stopped") return;
+    }
     // Mark session as exited in local state
-    const session = sessions.get(event.sessionId);
-    if (session && session.tabEl) {
-      session.tabEl.classList.add("tab-idle");
+    if (killedSession && killedSession.tabEl) {
+      killedSession.tabEl.classList.add("tab-idle");
     }
     showToast(`${name} was auto-stopped after 10 minutes idle.`, "error");
   }
 }
 
-function showToast(message, level = "info") {
+function showToast(message, level = "info", { action, actionLabel } = {}) {
   let container = document.getElementById("toast-container");
   if (!container) {
     container = document.createElement("div");
@@ -1867,6 +2080,21 @@ function showToast(message, level = "info") {
   const toast = document.createElement("div");
   toast.className = `toast toast-${level}`;
   toast.textContent = message;
+
+  // P1-25: Optional action button (e.g. "Keep alive")
+  if (action && actionLabel) {
+    const btn = document.createElement("button");
+    btn.className = "toast-action";
+    btn.textContent = actionLabel;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      action();
+      toast.classList.remove("toast-show");
+      setTimeout(() => toast.remove(), 300);
+    });
+    toast.appendChild(btn);
+  }
+
   container.appendChild(toast);
 
   // Trigger animation
@@ -1902,6 +2130,30 @@ function sendResize(session) {
   }
 }
 
+// P1-26: Clear agent context via /clear command
+async function clearSessionContext(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  if (session.status !== "running") {
+    showToast("Cannot clear context — agent is not running", "warning");
+    return;
+  }
+  try {
+    const resp = await fetchWithTimeout(`/api/sessions/${sessionId}/clear`, { method: "POST" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showToast(err.error || "Failed to clear context", "error");
+      return;
+    }
+    // Clear local terminal display
+    session.terminal.clear();
+    session.terminal.write("\r\n\x1b[38;2;166;227;161m● Context cleared\x1b[0m\r\n\r\n");
+    showToast(`Context cleared for ${session.name}`, "success");
+  } catch (err) {
+    showToast("Failed to clear context: " + err.message, "error");
+  }
+}
+
 async function closeTab(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
@@ -1911,7 +2163,7 @@ async function closeTab(sessionId) {
     const team = teams.get(session.teamId);
     if (team) {
       try {
-        await fetch(`/api/teams/${session.teamId}/agents/${sessionId}`, { method: "DELETE" });
+        await fetchWithTimeout(`/api/teams/${session.teamId}/agents/${sessionId}`, { method: "DELETE" });
       } catch {}
       const idx = team.agentIds.indexOf(sessionId);
       if (idx !== -1) team.agentIds.splice(idx, 1);
@@ -1919,7 +2171,7 @@ async function closeTab(sessionId) {
     }
   } else {
     try {
-      await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+      await fetchWithTimeout(`/api/sessions/${sessionId}`, { method: "DELETE" });
     } catch {}
   }
 
@@ -2170,7 +2422,7 @@ function addRole(role) {
 
 async function loadTemplates() {
   try {
-    const res = await fetch("/api/templates");
+    const res = await fetchWithTimeout("/api/templates");
     savedTemplates = await res.json();
   } catch {
     savedTemplates = [];
@@ -2180,7 +2432,7 @@ async function loadTemplates() {
 
 async function loadBuiltinRoles() {
   try {
-    const res = await fetch("/api/builtin-roles");
+    const res = await fetchWithTimeout("/api/builtin-roles");
     const data = await res.json();
     builtinRoles = data.builtin;
     extraRoles = data.extra;
@@ -2233,7 +2485,7 @@ async function saveTemplate() {
   const name = prompt("Template name:");
   if (!name) return;
   try {
-    const res = await fetch("/api/templates", {
+    const res = await fetchWithTimeout("/api/templates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, roles: currentRoles }),
@@ -2249,7 +2501,7 @@ async function deleteTemplate() {
   const id = templateSelect.value;
   if (!id || id === "__default__") return;
   try {
-    await fetch(`/api/templates/${id}`, { method: "DELETE" });
+    await fetchWithTimeout(`/api/templates/${id}`, { method: "DELETE" });
     savedTemplates = savedTemplates.filter((t) => t.id !== id);
     populateTemplateDropdown();
     templateSelect.value = "";
@@ -2300,7 +2552,7 @@ async function browseForFolder() {
   browseBtn.disabled = true;
   browseBtn.textContent = "Opening...";
   try {
-    const res = await fetch("/api/browse-folder");
+    const res = await fetchWithTimeout("/api/browse-folder", {}, 65000);
     const data = await res.json();
     if (!data.cancelled && data.path) {
       pathInput.value = data.path;
@@ -2313,7 +2565,10 @@ async function browseForFolder() {
   }
 }
 
+let _creatingTeam = false;
 async function createNewTeam() {
+  // P1-15: Prevent double-submit
+  if (_creatingTeam) return;
   const name = teamNameInput.value.trim();
   const cwd = pathInput.value.trim() || undefined;
   const prompt = promptInput.value.trim();
@@ -2330,18 +2585,33 @@ async function createNewTeam() {
 
   if (!name) { teamNameInput.focus(); return; }
   if (!prompt) { promptInput.focus(); return; }
+  // P1-14: Limit prompt length to prevent excessive token usage
+  if (prompt.length > 5000) {
+    showToast("Prompt too long (max 5000 characters). Please shorten it.", "error");
+    promptInput.focus();
+    return;
+  }
 
+  _creatingTeam = true;
   hideModal();
   newTeamBtn.disabled = true;
   statusText.textContent = "Creating team...";
 
   try {
-    const res = await fetch("/api/teams", {
+    const res = await fetchWithTimeout("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, cwd, prompt, roles, model, modelRouting }),
-    });
+    }, 30000);
     const data = await res.json();
+
+    // P1-11: Handle server error responses
+    if (!res.ok) {
+      const errMsg = data.error || `Server error (${res.status})`;
+      showToast(`Failed to create team: ${errMsg}`, "error");
+      statusText.textContent = `Error: ${errMsg}`;
+      return;
+    }
 
     // Add team to state
     const team = {
@@ -2363,13 +2633,19 @@ async function createNewTeam() {
 
     statusText.textContent = `Team "${name}" created`;
   } catch (err) {
+    // P1-11: Show toast on network/fetch errors
+    showToast(`Failed to create team: ${err.message}`, "error");
     statusText.textContent = `Error: ${err.message}`;
   } finally {
     newTeamBtn.disabled = false;
+    _creatingTeam = false;
   }
 }
 
+let _spawningAgent = false;
 async function spawnNewAgent() {
+  // P1-15: Prevent double-submit
+  if (_spawningAgent) return;
   if (!activeTeamId) return;
 
   const name = agentNameInput.value.trim();
@@ -2379,11 +2655,12 @@ async function spawnNewAgent() {
   if (!name) { agentNameInput.focus(); return; }
   if (!prompt) { agentPromptInput.focus(); return; }
 
+  _spawningAgent = true;
   hideAgentModal();
   statusText.textContent = "Spawning agent...";
 
   try {
-    const res = await fetch(`/api/teams/${activeTeamId}/agents`, {
+    const res = await fetchWithTimeout(`/api/teams/${activeTeamId}/agents`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, prompt, model }),
@@ -2414,13 +2691,15 @@ async function spawnNewAgent() {
     statusText.textContent = `Agent "${name}" spawned`;
   } catch (err) {
     statusText.textContent = `Error: ${err.message}`;
+  } finally {
+    _spawningAgent = false;
   }
 }
 
 async function relaunchTeam(teamId) {
   statusText.textContent = "Re-launching team...";
   try {
-    const res = await fetch(`/api/teams/${teamId}/relaunch`, { method: "POST" });
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/relaunch`, { method: "POST" });
     if (!res.ok) {
       const err = await res.json();
       statusText.textContent = `Error: ${err.error}`;
@@ -2456,7 +2735,7 @@ async function relaunchTeam(teamId) {
 async function deleteTeam(teamId) {
   statusText.textContent = "Deleting team...";
   try {
-    await fetch(`/api/teams/${teamId}`, { method: "DELETE" });
+    await fetchWithTimeout(`/api/teams/${teamId}`, { method: "DELETE" });
   } catch {}
 
   // handleTeamUpdate will be called by broadcast, but also do local cleanup
@@ -2497,11 +2776,73 @@ async function deleteTeam(teamId) {
   }
 }
 
+// P1-24: Export team config as JSON download
+async function exportTeam(teamId) {
+  try {
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/export`);
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `team-${data.name.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Exported "${data.name}"`, "success");
+  } catch (err) {
+    console.error("[Export] Failed:", err);
+    showToast("Failed to export team", "error");
+  }
+}
+
+// P1-24: Import team config from JSON file
+function importTeam() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json";
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const res = await fetchWithTimeout("/api/teams/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        showToast(err.error || "Import failed", "error");
+        return;
+      }
+      const result = await res.json();
+      const team = {
+        id: result.team.id,
+        name: result.team.name,
+        agentIds: result.team.agentIds,
+        modelRouting: result.team.modelRouting || null,
+        status: result.team.status || "running",
+      };
+      teams.set(team.id, team);
+      teamList.appendChild(renderTeamItem(team));
+      attachSession(result.mainAgent);
+      selectTeam(team.id);
+      switchToTeamTab();
+      showToast(`Imported "${team.name}"`, "success");
+    } catch (err) {
+      console.error("[Import] Failed:", err);
+      showToast("Failed to import team: invalid file", "error");
+    }
+  });
+  input.click();
+}
+
 // --- Load existing teams on page load ---
 
 async function loadExistingTeams() {
   try {
-    const res = await fetch("/api/teams");
+    const res = await fetchWithTimeout("/api/teams");
     const teamsList = await res.json();
 
     for (const teamData of teamsList) {
@@ -2517,7 +2858,7 @@ async function loadExistingTeams() {
 
       // Only load agents for running teams (stopped teams have no PTY sessions)
       if (team.status !== "stopped" && team.agentIds.length > 0) {
-        const agentsRes = await fetch(`/api/teams/${team.id}/agents`);
+        const agentsRes = await fetchWithTimeout(`/api/teams/${team.id}/agents`);
         const agents = await agentsRes.json();
         for (const agent of agents) {
           attachSession(agent);
@@ -2525,11 +2866,50 @@ async function loadExistingTeams() {
       }
     }
 
+    // P1-21: Restore saved team and tab selection
     if (teamsList.length > 0) {
-      selectTeam(teamsList[0].id);
+      const saved = getSavedTabState();
+      const savedTeamExists = saved.teamId && teams.has(saved.teamId);
+      const targetTeamId = savedTeamExists ? saved.teamId : teamsList[0].id;
+      selectTeam(targetTeamId);
+
+      // Restore the previously active tab
+      if (savedTeamExists && saved.tab && saved.tab !== "team") {
+        const tabSwitchers = {
+          usage: switchToUsageTab,
+          messages: switchToMessagesTab,
+          tasks: switchToTasksTab,
+          events: switchToEventsTab,
+          context: switchToContextTab,
+          files: switchToFilesTab,
+        };
+        if (tabSwitchers[saved.tab]) {
+          tabSwitchers[saved.tab]();
+        } else if (saved.tab.startsWith("session:")) {
+          const sessionId = saved.tab.slice(8);
+          if (sessions.has(sessionId)) switchTab(sessionId);
+        }
+      }
     }
-  } catch {}
+  } catch (err) {
+    // P1-5: Show error instead of blank UI when server is unreachable
+    console.error("[Init] Failed to load teams:", err);
+    showToast("Failed to connect to server. Is it running?", "error");
+  }
 }
+
+// P1-7: Clean up intervals on page unload to prevent memory leaks
+window.addEventListener("beforeunload", () => {
+  stopUsageAutoRefresh();
+  clearTimeout(_usagePollTimer);
+});
+
+// P1-26: Close kebab menus on outside click
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".tab-kebab") && !e.target.closest(".node-kebab")) {
+    document.querySelectorAll(".kebab-menu.open, .node-kebab-menu.open").forEach((m) => m.classList.remove("open"));
+  }
+});
 
 // --- Window resize ---
 window.addEventListener("resize", () => {
@@ -2548,32 +2928,69 @@ window.addEventListener("resize", () => {
   }
 });
 
-// --- Usage polling ---
-setInterval(async () => {
+// --- Usage polling (P1-6: efficient polling) ---
+let _usagePollTimer = null;
+let _usagePollMs = 5000;
+
+function _usagePollTick() {
+  // Skip polling when no teams/sessions exist or tab is hidden
+  if (teams.size === 0 && sessions.size === 0) {
+    _scheduleUsagePoll();
+    return;
+  }
+  if (document.hidden) {
+    _scheduleUsagePoll();
+    return;
+  }
+
+  const work = [];
+
   // Status bar update for active session
-  if (sessions.size > 0) {
-    try {
-      const res = await fetch("/api/sessions");
-      const list = await res.json();
-      for (const data of list) {
-        const session = sessions.get(data.id);
-        if (session && data.id === activeSessionId) {
-          const dur = Math.floor(data.usage.durationMs / 1000);
-          const mins = Math.floor(dur / 60);
-          const secs = dur % 60;
-          const inKB = (data.usage.bytesIn / 1024).toFixed(1);
-          const outKB = (data.usage.bytesOut / 1024).toFixed(1);
-          statusText.textContent = `${data.name} | ${data.status} | ${mins}m ${secs}s | In: ${inKB}KB | Out: ${outKB}KB`;
+  if (sessions.size > 0 && activeSessionId) {
+    work.push(
+      fetch("/api/sessions").then((r) => r.json()).then((list) => {
+        for (const data of list) {
+          if (data.id === activeSessionId) {
+            const dur = Math.floor(data.usage.durationMs / 1000);
+            const mins = Math.floor(dur / 60);
+            const secs = dur % 60;
+            const inKB = (data.usage.bytesIn / 1024).toFixed(1);
+            const outKB = (data.usage.bytesOut / 1024).toFixed(1);
+            statusText.textContent = `${data.name} | ${data.status} | ${mins}m ${secs}s | In: ${inKB}KB | Out: ${outKB}KB`;
+          }
         }
-      }
-    } catch {}
+      }).catch(() => {})
+    );
   }
 
   // Sidebar token summary update
   if (teams.size > 0) {
     refreshSidebarTokens();
   }
-}, 5000);
+
+  Promise.allSettled(work).then(() => _scheduleUsagePoll());
+}
+
+function _scheduleUsagePoll() {
+  clearTimeout(_usagePollTimer);
+  // Use 15s when tab is hidden, 5s when visible
+  const interval = document.hidden ? 15000 : 5000;
+  _usagePollTimer = setTimeout(_usagePollTick, interval);
+}
+
+// Start polling
+_scheduleUsagePoll();
+
+// P1-6: Adjust polling rate on visibility change
+document.addEventListener("visibilitychange", () => {
+  clearTimeout(_usagePollTimer);
+  if (!document.hidden) {
+    // Immediately poll on return to foreground
+    _usagePollTick();
+  } else {
+    _scheduleUsagePoll();
+  }
+});
 
 // --- Event listeners ---
 
@@ -2652,6 +3069,16 @@ document.getElementById("events-filter-agent").addEventListener("change", () => 
   if (eventsTabActive && activeTeamId && teamEvents.has(activeTeamId)) {
     renderEventsPanel(teamEvents.get(activeTeamId));
   }
+});
+// P1-22: Debounced text search for events
+let _eventsSearchTimer = null;
+document.getElementById("events-filter-search").addEventListener("input", () => {
+  clearTimeout(_eventsSearchTimer);
+  _eventsSearchTimer = setTimeout(() => {
+    if (eventsTabActive && activeTeamId && teamEvents.has(activeTeamId)) {
+      renderEventsPanel(teamEvents.get(activeTeamId));
+    }
+  }, 200);
 });
 
 // Init

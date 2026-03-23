@@ -145,41 +145,48 @@ class TeamManager {
     const mcpConfigPath = `/tmp/team-maker-mcp-${id}.json`;
     this._ensureMcpConfig(id, mcpConfigPath);
 
-    // Determine model for main agent: first role's model > team default
-    const mainModel = (teamRoles[0] && teamRoles[0].model) || model || null;
+    try {
+      // Determine model for main agent: first role's model > team default
+      const mainModel = (teamRoles[0] && teamRoles[0].model) || model || null;
 
-    // Spawn main agent session first (without prompt) so we know its session ID
-    const session = sessionManager.create({
-      name,
-      cwd,
-      autoAccept: true,
-      teamId: id,
-      role: "main",
-      mcpConfigPath,
-      model: mainModel,
-    });
+      // Spawn main agent session first (without prompt) so we know its session ID
+      const session = sessionManager.create({
+        name,
+        cwd,
+        autoAccept: true,
+        teamId: id,
+        role: "main",
+        mcpConfigPath,
+        model: mainModel,
+      });
 
-    // Build orchestrator prompt with the session ID so sub-agents can message back
-    const orchestratorPrompt = buildOrchestratorPrompt({
-      teamName: name,
-      sessionId,
-      cwd: cwd || process.env.HOME,
-      taskPrompt: prompt,
-      roles: teamRoles,
-      orchestratorSessionId: session.id,
-    });
+      // Build orchestrator prompt with the session ID so sub-agents can message back
+      const orchestratorPrompt = buildOrchestratorPrompt({
+        teamName: name,
+        sessionId,
+        cwd: cwd || process.env.HOME,
+        taskPrompt: prompt,
+        roles: teamRoles,
+        orchestratorSessionId: session.id,
+      });
 
-    // Inject the prompt now that we have the session ID embedded
-    session._injectPrompt(orchestratorPrompt);
+      // Inject the prompt now that we have the session ID embedded
+      session._injectPrompt(orchestratorPrompt);
 
-    team.mainAgentId = session.id;
-    team.agentIds.push(session.id);
-    team.status = "running";
+      team.mainAgentId = session.id;
+      team.agentIds.push(session.id);
+      team.status = "running";
 
-    // Persist team definition
-    this._persistTeam(team);
+      // Persist team definition
+      this._persistTeam(team);
 
-    return { team, session };
+      return { team, session };
+    } catch (err) {
+      // P1-2: Clean up MCP config and team on failure
+      this.teams.delete(id);
+      try { unlinkSync(mcpConfigPath); } catch {}
+      throw err;
+    }
   }
 
   get(id) {

@@ -104,6 +104,23 @@ header h1 {
   letter-spacing: 0.05em;
   color: #6c7086;
   border-bottom: 1px solid #313244;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#import-team-btn {
+  background: none;
+  border: none;
+  color: #6c7086;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+#import-team-btn:hover {
+  color: #89b4fa;
 }
 
 #team-list {
@@ -216,6 +233,27 @@ header h1 {
   background: #313244;
 }
 
+.team-item .export-team-btn {
+  background: none;
+  border: none;
+  color: #6c7086;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.team-item:hover .export-team-btn {
+  opacity: 1;
+}
+
+.team-item .export-team-btn:hover {
+  color: #89b4fa;
+  background: #313244;
+}
+
 /* Main content area */
 #main-content {
   flex: 1;
@@ -311,20 +349,81 @@ header h1 {
   line-height: 1;
 }
 
-.tab .close-btn {
+/* P1-26: Kebab menu (replaces close-btn) */
+.tab .tab-kebab {
+  position: relative;
+  margin-left: auto;
+}
+
+.tab .kebab-btn {
   background: none;
   border: none;
   color: #6c7086;
-  font-size: 14px;
+  font-size: 15px;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 0 4px;
   line-height: 1;
   border-radius: 3px;
+  font-weight: bold;
+  letter-spacing: -1px;
 }
 
-.tab .close-btn:hover {
-  color: #f38ba8;
+.tab .kebab-btn:hover {
+  color: #cdd6f4;
   background: #313244;
+}
+
+.tab .kebab-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #181825;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  min-width: 150px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(69, 71, 90, 0.3);
+  backdrop-filter: blur(12px);
+}
+
+.tab .kebab-menu.open {
+  display: block;
+  animation: kebab-fade-in 0.12s ease-out;
+}
+
+.tab .kebab-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  color: #bac2de;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  border-radius: 5px;
+  transition: background 0.1s, color 0.1s;
+}
+
+.tab .kebab-item:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.tab .kebab-item.close-agent-btn:hover {
+  background: rgba(243, 139, 168, 0.12);
+  color: #f38ba8;
+}
+
+@keyframes kebab-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 #terminal-container {
@@ -354,6 +453,41 @@ header h1 {
 
 .terminal-wrapper.active {
   display: block;
+}
+
+/* Starting overlay — blocks input while agent is initializing */
+.starting-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 30, 46, 0.85);
+  backdrop-filter: blur(4px);
+  gap: 16px;
+  pointer-events: all;
+}
+
+.starting-overlay .starting-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #45475a;
+  border-top-color: #cba6f7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.starting-overlay .starting-text {
+  color: #cdd6f4;
+  font-size: 14px;
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  letter-spacing: 0.5px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 #status-bar {
@@ -1474,6 +1608,27 @@ header h1 {
   border-color: #89b4fa;
 }
 
+/* P1-22: Events text search */
+.events-filters input[type="text"] {
+  background: #181825;
+  color: #cdd6f4;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.events-filters input[type="text"]::placeholder {
+  color: #6c7086;
+}
+
+.events-filters input[type="text"]:focus {
+  outline: none;
+  border-color: #89b4fa;
+}
+
 #events-panel-content {
   padding: 12px 16px;
   display: flex;
@@ -1707,6 +1862,28 @@ header h1 {
 .toast-info {
   border-color: #89b4fa;
   border-left: 3px solid #89b4fa;
+}
+
+.toast-success {
+  border-color: #a6e3a1;
+  border-left: 3px solid #a6e3a1;
+}
+
+/* P1-25: Toast action button */
+.toast-action {
+  background: #313244;
+  color: #89b4fa;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: 10px;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  background: #45475a;
 }
 
 /* --- Context Panel (AP5-B) --- */
@@ -2282,6 +2459,78 @@ header h1 {
   font-size: 9px;
   color: #585b70;
   margin-left: auto;
+}
+
+/* P1-26: Kebab menu on agent nodes */
+.node-kebab {
+  position: relative;
+  margin-left: auto;
+}
+
+.node-kebab-btn {
+  background: none;
+  border: none;
+  color: #585b70;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 3px;
+  line-height: 1;
+  border-radius: 3px;
+  font-weight: bold;
+  letter-spacing: -1px;
+}
+
+.node-kebab-btn:hover {
+  color: #cdd6f4;
+  background: #313244;
+}
+
+.node-kebab-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #181825;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  min-width: 150px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(69, 71, 90, 0.3);
+  backdrop-filter: blur(12px);
+}
+
+.node-kebab-menu.open {
+  display: block;
+  animation: kebab-fade-in 0.12s ease-out;
+}
+
+.node-kebab-menu .kebab-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  color: #bac2de;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  border-radius: 5px;
+  transition: background 0.1s, color 0.1s;
+}
+
+.node-kebab-menu .kebab-item:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.node-kebab-menu .kebab-item.node-close-btn:hover {
+  background: rgba(243, 139, 168, 0.12);
+  color: #f38ba8;
 }
 
 /* Connection lines between nodes */
