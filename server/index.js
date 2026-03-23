@@ -25,7 +25,21 @@ contextStore.restoreFromState();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  maxPayload: 64 * 1024, // 64KB max message size to prevent memory exhaustion
+  verifyClient: ({ req }, done) => {
+    const origin = req.headers.origin;
+    // Allow connections with no origin (non-browser clients like CLI tools)
+    if (!origin) return done(true);
+    // Only allow localhost origins (block cross-origin/DNS rebinding attacks)
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return done(true);
+    }
+    console.warn(`[WebSocket] Rejected connection from origin: ${origin}`);
+    done(false, 403, "Forbidden: invalid origin");
+  },
+});
 
 app.use(express.json());
 app.use(express.static(join(__dirname, "..", "public")));
@@ -102,7 +116,11 @@ app.delete("/api/sessions/:id", (req, res) => {
 app.post("/api/sessions/:id/resize", (req, res) => {
   const session = sessionManager.get(req.params.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
-  const { cols, rows } = req.body;
+  const cols = parseInt(req.body.cols, 10);
+  const rows = parseInt(req.body.rows, 10);
+  if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || cols > 500 || rows < 1 || rows > 500) {
+    return res.status(400).json({ error: "Invalid cols/rows (must be integers 1-500)" });
+  }
   session.resize(cols, rows);
   res.json({ ok: true });
 });
@@ -123,6 +141,9 @@ app.post("/api/sessions/:id/input", (req, res) => {
   if (!session) return res.status(404).json({ error: "Session not found" });
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "text is required" });
+  if (typeof text !== "string" || text.length > 10000) {
+    return res.status(400).json({ error: "text must be a string under 10000 characters" });
+  }
   session.injectInput(text + "\r");
   res.json({ ok: true });
 });
@@ -220,6 +241,9 @@ app.post("/api/teams/import", async (req, res) => {
   const data = req.body;
   if (!data || !data.name || !data.prompt) {
     return res.status(400).json({ error: "Invalid import data: name and prompt required" });
+  }
+  if (typeof data.prompt === "string" && data.prompt.length > 5000) {
+    return res.status(400).json({ error: "Imported prompt too long (max 5000 characters)" });
   }
   // Validate cwd if present
   if (data.cwd) {
@@ -806,11 +830,16 @@ wss.on("connection", (ws) => {
         break;
       }
       case "resize": {
+        const cols = parseInt(msg.cols, 10);
+        const rows = parseInt(msg.rows, 10);
+        if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || cols > 500 || rows < 1 || rows > 500) {
+          break; // ignore invalid resize
+        }
         if (attachedSession) {
-          attachedSession.resize(msg.cols, msg.rows);
+          attachedSession.resize(cols, rows);
         } else {
           // P1-20: Buffer resize for when session attaches
-          pendingResize = { cols: msg.cols, rows: msg.rows };
+          pendingResize = { cols, rows };
         }
         break;
       }
