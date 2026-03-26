@@ -828,11 +828,12 @@ content (string), timestamp (ISO8601), read (boolean)
 ### Template Store (server/templateStore.js)
 > Status: [x] Done
 
-**Purpose**: CRUD for team role configuration templates.
+**Purpose**: CRUD for team role configuration templates, including team-level configuration (prompt, model, routing).
 
 **Responsibilities**:
 - Load/save/delete templates
 - Migrate from legacy file format
+- Store and restore team configuration alongside roles
 
 **Interfaces**:
 - Input: REST API calls
@@ -846,9 +847,20 @@ content (string), timestamp (ISO8601), read (boolean)
   "id": "uuid",
   "name": "string",
   "roles": "Role[]",
+  "prompt": "string (optional, null if not provided)",
+  "model": "string (optional, null if not provided)",
+  "modelRouting": "{ low: string, medium: string, high: string } (optional, null if not provided)",
   "createdAt": "ISO8601"
 }
 ```
+
+**save() Method Signature**:
+```javascript
+save({ name, roles, prompt, model, modelRouting }) → Template
+```
+- All parameters except `name` and `roles` are optional
+- If `prompt`/`model`/`modelRouting` not provided, stored as `null`
+- Creates UUID and ISO8601 timestamp automatically
 
 **Legacy Migration**: On first load, checks `data/templates.json` and imports to stateStore if not already migrated.
 
@@ -858,6 +870,8 @@ content (string), timestamp (ISO8601), read (boolean)
 - [x] Templates can be created, listed, and deleted
 - [x] Legacy migration runs once
 - [x] Templates persist via stateStore
+- [x] New template fields (prompt, model, modelRouting) are stored and restored
+- [x] Graceful degradation: old templates without these fields work correctly
 
 **Open Questions**: None
 

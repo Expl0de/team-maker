@@ -155,9 +155,9 @@ app.get("/api/templates", (req, res) => {
 });
 
 app.post("/api/templates", (req, res) => {
-  const { name, roles } = req.body || {};
+  const { name, roles, prompt, model, modelRouting } = req.body || {};
   if (!name || !roles) return res.status(400).json({ error: "name and roles are required" });
-  const template = templateStore.save({ name, roles });
+  const template = templateStore.save({ name, roles, prompt, model, modelRouting });
   res.json(template);
 });
 

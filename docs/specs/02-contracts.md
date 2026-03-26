@@ -735,15 +735,35 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 #### GET /api/templates — List Templates
 > Status: [x] Done
 
-**Response** (200): `[{ "id": "uuid", "name": "string", "roles": Role[], "createdAt": "ISO8601" }]`
+**Response** (200): Template array with schema:
+```json
+{
+  "id": "uuid",
+  "name": "string",
+  "roles": "Role[]",
+  "prompt": "string (optional, null if not provided)",
+  "model": "string (optional, null if not provided)",
+  "modelRouting": "{ low: string, medium: string, high: string } (optional, null if not provided)",
+  "createdAt": "ISO8601"
+}
+```
 
 ---
 
 #### POST /api/templates — Save Template
 > Status: [x] Done
 
-**Request Body**: `{ "name": "string (required)", "roles": "Role[] (required)" }`
-**Response** (200): `Template` object
+**Request Body**:
+```json
+{
+  "name": "string (required)",
+  "roles": "Role[] (required)",
+  "prompt": "string (optional, team task prompt)",
+  "model": "string (optional, team default model, e.g. 'claude-sonnet-4-6')",
+  "modelRouting": "{ low: string, medium: string, high: string } (optional)"
+}
+```
+**Response** (200): `Template` object (same schema as GET /api/templates response)
 
 ---
 

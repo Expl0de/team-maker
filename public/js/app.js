@@ -2625,10 +2625,28 @@ function populateQuickAdd() {
 function applyTemplate(templateId) {
   if (templateId === "__default__") {
     currentRoles = builtinRoles.map((r) => ({ ...r }));
+    document.getElementById("prompt-input").value = "";
+    document.getElementById("model-select").value = "";
+    document.getElementById("model-routing-enabled").checked = false;
+    document.getElementById("model-routing-config").style.display = "none";
   } else {
     const template = savedTemplates.find((t) => t.id === templateId);
     if (template) {
       currentRoles = template.roles.map((r) => ({ ...r }));
+      if (template.prompt) {
+        document.getElementById("prompt-input").value = template.prompt;
+      }
+      document.getElementById("model-select").value = template.model || "";
+      if (template.modelRouting) {
+        document.getElementById("model-routing-enabled").checked = true;
+        document.getElementById("model-routing-config").style.display = "";
+        document.getElementById("routing-low").value = template.modelRouting.low;
+        document.getElementById("routing-medium").value = template.modelRouting.medium;
+        document.getElementById("routing-high").value = template.modelRouting.high;
+      } else {
+        document.getElementById("model-routing-enabled").checked = false;
+        document.getElementById("model-routing-config").style.display = "none";
+      }
     }
   }
   editingRoleIndex = -1;
@@ -2640,10 +2658,20 @@ async function saveTemplate() {
   const name = prompt("Template name:");
   if (!name) return;
   try {
+    const teamPrompt = document.getElementById("prompt-input").value;
+    const model = document.getElementById("model-select").value;
+    const routingEnabled = document.getElementById("model-routing-enabled").checked;
+    const modelRouting = routingEnabled
+      ? {
+          low: document.getElementById("routing-low").value,
+          medium: document.getElementById("routing-medium").value,
+          high: document.getElementById("routing-high").value,
+        }
+      : null;
     const res = await fetchWithTimeout("/api/templates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, roles: currentRoles }),
+      body: JSON.stringify({ name, roles: currentRoles, prompt: teamPrompt, model, modelRouting }),
     });
     const template = await res.json();
     savedTemplates.push(template);

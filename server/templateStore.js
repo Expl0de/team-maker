@@ -37,12 +37,15 @@ export function get(id) {
   return templates.find((t) => t.id === id) || null;
 }
 
-export function save({ name, roles }) {
+export function save({ name, roles, prompt, model, modelRouting }) {
   const templates = loadAll();
   const template = {
     id: uuidv4(),
     name,
     roles,
+    prompt: prompt || null,
+    model: model || null,
+    modelRouting: modelRouting || null,
     createdAt: new Date().toISOString(),
   };
   templates.push(template);
