@@ -208,12 +208,38 @@ class TeamManager {
     const team = this.teams.get(teamId);
     if (!team) return null;
 
-    // Model priority: explicit model > routing table (by task complexity) > team default
-    let agentModel = model || null;
-    if (!agentModel && taskComplexity && team.modelRouting) {
-      agentModel = team.modelRouting[taskComplexity] || null;
-    }
-    if (!agentModel) {
+    // Model tier order for ceiling enforcement (lower index = cheaper model)
+    const MODEL_TIER = [
+      "claude-haiku-4-5-20251001",
+      "claude-haiku-4-5",
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-5",
+      "claude-opus-4-6",
+      "claude-opus-4-5",
+    ];
+    const tierOf = (m) => {
+      const idx = MODEL_TIER.indexOf(m);
+      return idx === -1 ? Infinity : idx;
+    };
+
+    // Model selection: routing can downgrade but never upgrade beyond the agent's configured model.
+    // - taskComplexity selects a model from the routing table
+    // - model (from role config) acts as a ceiling: routing may pick something cheaper, but not more expensive
+    // - If only model is set (no taskComplexity), use it directly as a hard selection
+    // - Fall back to team-level default if neither is set
+    let agentModel = null;
+    const routedModel = (taskComplexity && team.modelRouting)
+      ? (team.modelRouting[taskComplexity] || null)
+      : null;
+
+    if (model && routedModel) {
+      // Both ceiling and routing result: pick whichever is cheaper (ceiling enforced)
+      agentModel = tierOf(routedModel) <= tierOf(model) ? routedModel : model;
+    } else if (model) {
+      agentModel = model;
+    } else if (routedModel) {
+      agentModel = routedModel;
+    } else {
       agentModel = team.model || null;
     }
 

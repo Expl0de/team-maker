@@ -28,7 +28,8 @@ export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, 
 
   const spawnInstructions = roles.map((role, i) => {
     const num = i + 1;
-    return `- Agent ${num}: name="${role.title}", use the sub-agent prompt template below with N=${num}, Role="${role.title}", Responsibility="${role.responsibility}"`;
+    const modelHint = role.model ? `, model="${role.model}"` : "";
+    return `- Agent ${num}: name="${role.title}"${modelHint}, use the sub-agent prompt template below with N=${num}, Role="${role.title}", Responsibility="${role.responsibility}"`;
   }).join("\n");
 
   const priorKnowledgeSection = projectMemorySnapshot
@@ -145,7 +146,7 @@ Example workflow:
 
 Spawn order strategy:
 1. Create all tasks first (Step 2) — always set \`complexity\` on each task
-2. Spawn the agent needed for the first task(s) that have no dependencies — pass \`taskComplexity\` matching the task's complexity level so the right model is selected automatically
+2. Spawn the agent needed for the first task(s) that have no dependencies — always pass \`taskComplexity\` matching the task's complexity level AND pass the role's \`model\` if listed above. The role model is a ceiling: routing may pick a cheaper model for low-complexity tasks, but will never upgrade above the role's configured model.
 3. As tasks complete, spawn additional agents only when their tasks are unblocked
 4. If a role has no tasks, don't spawn that agent at all
 

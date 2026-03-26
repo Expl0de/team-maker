@@ -18,12 +18,12 @@ const server = new McpServer({
 
 server.tool(
   "spawn_agent",
-  "Spawn a new agent in your team. If smart model routing is enabled, pass taskComplexity to auto-select the model based on the team's routing table (low=Haiku, medium=Sonnet, high=Opus by default).",
+  "Spawn a new agent in your team. Pass both model (role's configured model as ceiling) and taskComplexity together: routing selects the model by complexity but will never exceed the ceiling. Routing can downgrade (e.g. low task uses Haiku even if ceiling is Sonnet), but never upgrade above the ceiling.",
   {
     name: z.string().describe("Name for the new agent"),
     prompt: z.string().describe("Task/prompt for the new agent"),
-    model: z.string().optional().describe("Override model for this agent (e.g. 'claude-sonnet-4-6'). If omitted and taskComplexity is set, the model is auto-selected from the team's routing table."),
-    taskComplexity: z.enum(["low", "medium", "high"]).optional().describe("Task complexity level for smart model routing. low=coordination/simple tasks, medium=standard coding, high=architecture/complex debugging."),
+    model: z.string().optional().describe("Ceiling model for this agent (e.g. 'claude-sonnet-4-6'). When used with taskComplexity, acts as a maximum — routing may select a cheaper model but will never go above this. When used alone (no taskComplexity), used directly as the agent's model."),
+    taskComplexity: z.enum(["low", "medium", "high"]).optional().describe("Task complexity level for smart model routing. low=coordination/simple tasks, medium=standard coding, high=architecture/complex debugging. The routed model is capped by the model parameter if provided."),
   },
   async ({ name, prompt, model, taskComplexity }) => {
     try {
