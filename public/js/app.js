@@ -600,6 +600,31 @@ function attachSession(data) {
       <div class="starting-text">Agent is starting…</div>
     `;
     wrapper.appendChild(overlay);
+
+    // After 15s, add a close button so the user can dismiss a stuck overlay
+    const closeTimer = setTimeout(() => {
+      if (!overlay.isConnected) return;
+      const btn = document.createElement("button");
+      btn.className = "starting-close-btn";
+      btn.textContent = "Close";
+      btn.addEventListener("click", () => {
+        overlay.remove();
+        // Also remove from embedded wrapper in team console
+        const embedded = document.querySelector(
+          `#team-console-area .terminal-wrapper-embedded[data-session-id="${data.id}"] .starting-overlay`
+        );
+        if (embedded) embedded.remove();
+      });
+      overlay.appendChild(btn);
+    }, 15000);
+
+    // Cancel the timer if the overlay is removed before 15s (normal start)
+    new MutationObserver((_, obs) => {
+      if (!overlay.isConnected) {
+        clearTimeout(closeTimer);
+        obs.disconnect();
+      }
+    }).observe(document.body, { childList: true, subtree: true });
   }
 
   // Connect WebSocket

@@ -257,6 +257,7 @@ class TeamManager {
     if (!oldSession) return null;
 
     const { name, initialPrompt, model, agentIndex } = oldSession;
+    const isOrchestrator = agentId === team.mainAgentId;
 
     // Destroy the old session
     sessionManager.destroy(agentId);
@@ -265,18 +266,45 @@ class TeamManager {
     const mcpConfigPath = `/tmp/team-maker-mcp-${teamId}.json`;
     this._ensureMcpConfig(teamId, mcpConfigPath);
 
-    // Respawn with same parameters
-    const newSession = sessionManager.create({
-      name,
-      cwd: team.cwd,
-      autoAccept: true,
-      initialPrompt,
-      teamId,
-      role: "agent",
-      agentIndex,
-      mcpConfigPath,
-      model,
-    });
+    let newSession;
+    if (isOrchestrator) {
+      // Orchestrator: spawn without prompt first (need session ID for the prompt)
+      newSession = sessionManager.create({
+        name,
+        cwd: team.cwd,
+        autoAccept: true,
+        teamId,
+        role: "main",
+        mcpConfigPath,
+        model,
+      });
+
+      // Rebuild orchestrator prompt with the new session ID
+      const orchestratorPrompt = buildOrchestratorPrompt({
+        teamName: team.name,
+        sessionId: team.sessionId,
+        cwd: team.cwd || process.env.HOME,
+        taskPrompt: team.prompt,
+        roles: team.roles,
+        orchestratorSessionId: newSession.id,
+      });
+
+      newSession._injectPrompt(orchestratorPrompt);
+      team.mainAgentId = newSession.id;
+    } else {
+      // Regular agent: respawn with stored parameters
+      newSession = sessionManager.create({
+        name,
+        cwd: team.cwd,
+        autoAccept: true,
+        initialPrompt,
+        teamId,
+        role: "agent",
+        agentIndex,
+        mcpConfigPath,
+        model,
+      });
+    }
 
     // Replace the old agent ID with the new one in the team
     team.agentIds[idx] = newSession.id;

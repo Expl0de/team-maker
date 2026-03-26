@@ -486,6 +486,24 @@ header h1 {
   letter-spacing: 0.5px;
 }
 
+.starting-overlay .starting-close-btn {
+  margin-top: 8px;
+  padding: 6px 18px;
+  background: transparent;
+  border: 1px solid #6c7086;
+  border-radius: 6px;
+  color: #a6adc8;
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.starting-overlay .starting-close-btn:hover {
+  border-color: #cba6f7;
+  color: #cba6f7;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
