@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__team-maker__list_agents",
+      "mcp__team-maker__get_tasks",
+      "mcp__team-maker__complete_task",
+      "mcp__team-maker__claim_task",
+      "mcp__team-maker__send_message"
+    ]
+  }
+}

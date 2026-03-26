@@ -1,0 +1,2 @@
+# Ignore timestamped session artifact directories
+[0-9]*/
