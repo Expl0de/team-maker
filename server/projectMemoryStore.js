@@ -3,13 +3,9 @@ import { join } from "path";
 
 const TEAM_MAKER_DIR = ".team-maker";
 const MEMORY_FILE = "project-memory.json";
-const GITIGNORE_FILE = ".gitignore";
-const GITIGNORE_CONTENT = `# Ignore per-session ephemeral artifacts
-*/
-
-# Keep project-level memory
-!project-memory.json
-`;
+const GITIGNORE_MARKER = "# Team Maker: ignore session artifact dirs";
+const GITIGNORE_ENTRY = ".team-maker/*/";
+const GITIGNORE_BLOCK = `\n${GITIGNORE_MARKER}\n${GITIGNORE_ENTRY}\n`;
 
 /**
  * Stores project-level memory in <cwd>/.team-maker/project-memory.json.
@@ -24,9 +20,13 @@ export class ProjectMemoryStore {
 
   ensureGitignore() {
     mkdirSync(this.dir, { recursive: true });
-    const gitignorePath = join(this.dir, GITIGNORE_FILE);
-    if (!existsSync(gitignorePath)) {
-      writeFileSync(gitignorePath, GITIGNORE_CONTENT, "utf8");
+    const rootGitignorePath = join(this.cwd, ".gitignore");
+    const existing = existsSync(rootGitignorePath)
+      ? readFileSync(rootGitignorePath, "utf8")
+      : "";
+    if (!existing.includes(GITIGNORE_ENTRY)) {
+      const suffix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+      writeFileSync(rootGitignorePath, existing + suffix + GITIGNORE_BLOCK, "utf8");
     }
   }
 
