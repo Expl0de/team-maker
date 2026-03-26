@@ -8,12 +8,12 @@ This `specs/` directory contains the Specification-Driven Development (SDD) docu
 
 | File | Title | Description | Spec Status |
 |------|-------|-------------|-------------|
-| [00-overview.md](00-overview.md) | System Overview | High-level purpose, key concepts, glossary, and top-level feature list | `[ ] Draft` |
-| [01-architecture.md](01-architecture.md) | Architecture | Component map, data flow diagrams, dependency graph, and NPM dependencies | `[ ] Draft` |
-| [02-contracts.md](02-contracts.md) | Contracts & Interfaces | All REST endpoints, WebSocket message types, and MCP tool schemas | `[ ] Draft` |
-| [03-backend.md](03-backend.md) | Backend | All 11 server modules with PTY lifecycle, session management, and supporting infrastructure | `[ ] Draft` |
-| [04-frontend.md](04-frontend.md) | Frontend | Tab management, xterm.js terminals, WebSocket client, modals, panels, and theming | `[ ] Draft` |
-| [05-agents.md](05-agents.md) | Agent Orchestration | MCP server architecture, all 17 MCP tools, agent lifecycle, task state machine, and orchestrator pattern | `[ ] Draft` |
+| [00-overview.md](00-overview.md) | System Overview | High-level purpose, key concepts, glossary, and top-level feature list | `[x] Done` |
+| [01-architecture.md](01-architecture.md) | Architecture | Component map, data flow diagrams, dependency graph, and NPM dependencies | `[x] Done` |
+| [02-contracts.md](02-contracts.md) | Contracts & Interfaces | All REST endpoints, WebSocket message types, and MCP tool schemas | `[x] Done` |
+| [03-backend.md](03-backend.md) | Backend | All 11 server modules with PTY lifecycle, session management, and supporting infrastructure | `[x] Done` |
+| [04-frontend.md](04-frontend.md) | Frontend | Tab management, xterm.js terminals, WebSocket client, modals, panels, and theming | `[x] Done` |
+| [05-agents.md](05-agents.md) | Agent Orchestration | MCP server architecture, all 17 MCP tools, agent lifecycle, task state machine, and orchestrator pattern | `[x] Done` |
 
 ---
 

@@ -1,6 +1,6 @@
 # Frontend
 
-> **Spec Status**: [ ] Draft
+> **Spec Status**: [x] Done
 > **Last Updated**: 2026-03-26
 
 ## Purpose
@@ -23,7 +23,7 @@ Covers all files in `public/`: `index.html`, `css/style.css`, `js/app.js`, `usag
 ## Components / Features
 
 ### Application Layout
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Overall page structure with sidebar, tab bar, and content area.
 
@@ -70,17 +70,17 @@ Covers all files in `public/`: `index.html`, `css/style.css`, `js/app.js`, `usag
 ```
 
 **Acceptance Criteria**:
-- [ ] Layout renders correctly at various viewport sizes
-- [ ] Sidebar shows team list with status indicators
-- [ ] Tab bar switches between panels
-- [ ] Empty state shown when no teams exist
+- [x] Layout renders correctly at various viewport sizes
+- [x] Sidebar shows team list with status indicators
+- [x] Tab bar switches between panels
+- [x] Empty state shown when no teams exist
 
 **Open Questions**: None
 
 ---
 
 ### Sidebar — Team List
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Display all teams with status indicators and selection.
 
@@ -102,17 +102,17 @@ Covers all files in `public/`: `index.html`, `css/style.css`, `js/app.js`, `usag
 - Stopped teams can be relaunched from sidebar context
 
 **Acceptance Criteria**:
-- [ ] Teams listed in sidebar
-- [ ] Running/stopped status indicated
-- [ ] Team selection loads agents and panels
-- [ ] Import creates new team from exported config
+- [x] Teams listed in sidebar
+- [x] Running/stopped status indicated
+- [x] Team selection loads agents and panels
+- [x] Import creates new team from exported config
 
 **Open Questions**: None
 
 ---
 
 ### Tab Management
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Navigate between agent terminals and utility panels within a team.
 
@@ -153,18 +153,18 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Restored on page load
 
 **Acceptance Criteria**:
-- [ ] Tabs render for all panel types
-- [ ] Only one panel visible at a time
-- [ ] Tab selection persisted in localStorage
-- [ ] Agent tabs added/removed as agents spawn/exit
-- [ ] Tab names update with agent names
+- [x] Tabs render for all panel types
+- [x] Only one panel visible at a time
+- [x] Tab selection persisted in localStorage
+- [x] Agent tabs added/removed as agents spawn/exit
+- [x] Tab names update with agent names
 
 **Open Questions**: None
 
 ---
 
 ### xterm.js Terminal Instances
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Render PTY output for each agent session in a browser terminal emulator.
 
@@ -203,18 +203,18 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 5. **Dispose**: Close WebSocket → terminal.dispose() → remove DOM elements
 
 **Acceptance Criteria**:
-- [ ] Terminal renders PTY output correctly
-- [ ] User input forwarded via WebSocket
-- [ ] Terminal auto-resizes with FitAddon
-- [ ] URLs are clickable via WebLinksAddon
-- [ ] Terminal properly disposed on agent removal
+- [x] Terminal renders PTY output correctly
+- [x] User input forwarded via WebSocket
+- [x] Terminal auto-resizes with FitAddon
+- [x] URLs are clickable via WebLinksAddon
+- [x] Terminal properly disposed on agent removal
 
 **Open Questions**: None
 
 ---
 
 ### WebSocket Client
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Manage WebSocket connections for terminal I/O and event streaming.
 
@@ -255,17 +255,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Used for all REST API calls
 
 **Acceptance Criteria**:
-- [ ] WebSocket connects and streams terminal data
-- [ ] All broadcast event types handled
-- [ ] Fetch timeout prevents hanging requests
-- [ ] UI updates in response to WebSocket events
+- [x] WebSocket connects and streams terminal data
+- [x] All broadcast event types handled
+- [x] Fetch timeout prevents hanging requests
+- [x] UI updates in response to WebSocket events
 
 **Open Questions**: None
 
 ---
 
 ### Working Directory Modal (New Team)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Modal dialog for creating a new team with all configuration options.
 
@@ -303,19 +303,19 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Create Team: validates (prompt required), sends POST /api/teams
 
 **Acceptance Criteria**:
-- [ ] All fields render and accept input
-- [ ] Browse button opens Finder dialog
-- [ ] Project memory preview loads for valid cwd
-- [ ] Role editor supports add/remove/reorder/template
-- [ ] Validation requires prompt before creation
-- [ ] Smart model routing configurable
+- [x] All fields render and accept input
+- [x] Browse button opens Finder dialog
+- [x] Project memory preview loads for valid cwd
+- [x] Role editor supports add/remove/reorder/template
+- [x] Validation requires prompt before creation
+- [x] Smart model routing configurable
 
 **Open Questions**: None
 
 ---
 
 ### New Agent Modal
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Modal for spawning a new agent in the active team.
 
@@ -337,16 +337,16 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 **Enabled**: Only when a running team is selected ("+ New Agent" button in header).
 
 **Acceptance Criteria**:
-- [ ] Modal opens from header button
-- [ ] Agent spawned in active team
-- [ ] New agent tab appears automatically
+- [x] Modal opens from header button
+- [x] Agent spawned in active team
+- [x] New agent tab appears automatically
 
 **Open Questions**: None
 
 ---
 
 ### Question Dialog Detection & Alerts
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Visual and audio alerts when an agent needs human attention.
 
@@ -376,17 +376,52 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 2. Stuck tool call detection (8s timeout from JSONL)
 
 **Acceptance Criteria**:
-- [ ] Yellow dot appears on agent tab on question event
-- [ ] Audio beep plays on question event
-- [ ] Alert cleared when user views the agent
-- [ ] Multiple agents can have alerts simultaneously
+- [x] Yellow dot appears on agent tab on question event
+- [x] Audio beep plays on question event
+- [x] Alert cleared when user views the agent
+- [x] Multiple agents can have alerts simultaneously
+
+**Open Questions**: None
+
+---
+
+### Starting / Stuck-Agent Overlay
+> Status: [x] Done
+
+**Purpose**: Block terminal interaction while an agent is initializing, and allow dismissal if the agent gets stuck in the starting state.
+
+**Responsibilities**:
+- Display an overlay on the terminal wrapper when `agentState === "starting"`
+- Show a spinner and status message during normal startup
+- Add a close/dismiss button after 15 seconds if the agent is still starting
+- Auto-remove the overlay once the agent leaves "starting" state
+- Also remove the overlay from the team console embedded terminal when dismissed
+
+**Interfaces**:
+- Input: `agentState` from session data on tab creation; MutationObserver detects removal
+- Output: `.starting-overlay` DOM element with `.starting-spinner` + `.starting-text`; optional `.starting-close-btn`
+
+**Behavior / Rules**:
+- Overlay added only when `!data.agentState || data.agentState === "starting"` at tab creation time
+- After 15s (`closeTimer`): a "Close" button is appended to the overlay — only if the overlay is still connected to the DOM
+- Close button removes the overlay from both the main terminal wrapper and the embedded team console wrapper
+- MutationObserver cancels the 15s timer if the overlay is removed before it fires (normal startup path)
+- Visual style: Catppuccin Mocha theme (overlay background, spinner, text match overall UI palette)
+
+**Acceptance Criteria**:
+- [x] Overlay appears on terminal wrapper when agent state is "starting"
+- [x] Spinner and "Agent is starting…" message shown during startup
+- [x] After 15s, Close button appears if agent is still stuck in starting state
+- [x] Close button dismisses overlay in both main and team-console embedded views
+- [x] Overlay auto-removed when agent transitions out of "starting" state (MutationObserver)
+- [x] 15s timer cancelled on normal startup (no spurious close button)
 
 **Open Questions**: None
 
 ---
 
 ### Agent State Indicators
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Show real-time agent activity status in the UI.
 
@@ -416,17 +451,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 **Tracked In**: `agentStates` Map: sessionId → { state, lastToolCall }
 
 **Acceptance Criteria**:
-- [ ] State badges update in real-time
-- [ ] Activity dot shows during PTY output
-- [ ] Tool call name displayed during tool_calling state
-- [ ] States tracked per agent independently
+- [x] State badges update in real-time
+- [x] Activity dot shows during PTY output
+- [x] Tool call name displayed during tool_calling state
+- [x] States tracked per agent independently
 
 **Open Questions**: None
 
 ---
 
 ### Team Overview Panel
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Visual overview of team with agent flow graph and mini console.
 
@@ -458,17 +493,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Clear Context: POST /api/sessions/{id}/clear
 
 **Acceptance Criteria**:
-- [ ] Flow graph shows all team agents
-- [ ] Agent nodes show current state
-- [ ] Mini console renders selected agent's terminal
-- [ ] Agent actions (restart/remove/keep-alive) work
+- [x] Flow graph shows all team agents
+- [x] Agent nodes show current state
+- [x] Mini console renders selected agent's terminal
+- [x] Agent actions (restart/remove/keep-alive) work
 
 **Open Questions**: None
 
 ---
 
 ### Usage Panel
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Display token usage and cost breakdown for the team.
 
@@ -494,17 +529,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - `formatBytes(b)`: 1.2 MB, 45.3 KB, or raw bytes
 
 **Acceptance Criteria**:
-- [ ] Team totals displayed in summary cards
-- [ ] Per-agent table shows all usage metrics
-- [ ] Auto-refresh updates data while visible
-- [ ] Formatting handles all magnitude ranges
+- [x] Team totals displayed in summary cards
+- [x] Per-agent table shows all usage metrics
+- [x] Auto-refresh updates data while visible
+- [x] Formatting handles all magnitude ranges
 
 **Open Questions**: None
 
 ---
 
 ### Messages Panel
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Display inter-agent message timeline for the team.
 
@@ -524,17 +559,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Stored in `teamMessages` Map by teamId
 
 **Acceptance Criteria**:
-- [ ] Message history loads on panel activation
-- [ ] New messages appear in real-time
-- [ ] Messages show sender, recipient, and timestamp
-- [ ] Content rendered safely (DOMPurify)
+- [x] Message history loads on panel activation
+- [x] New messages appear in real-time
+- [x] Messages show sender, recipient, and timestamp
+- [x] Content rendered safely (DOMPurify)
 
 **Open Questions**: None
 
 ---
 
 ### Tasks Panel
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Visualize the task board for the team.
 
@@ -555,17 +590,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Retry button on failed tasks (POST .../retry)
 
 **Acceptance Criteria**:
-- [ ] Tasks displayed with all metadata
-- [ ] Status badges color-coded
-- [ ] Real-time updates from WebSocket
-- [ ] Retry button resets failed tasks to pending
+- [x] Tasks displayed with all metadata
+- [x] Status badges color-coded
+- [x] Real-time updates from WebSocket
+- [x] Retry button resets failed tasks to pending
 
 **Open Questions**: None
 
 ---
 
 ### Events Panel
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Display structured JSONL events from agent sessions with filtering.
 
@@ -595,17 +630,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 **Real-Time Updates**: New events prepended from WebSocket `agent-event` messages
 
 **Acceptance Criteria**:
-- [ ] Events displayed with correct formatting
-- [ ] Filters work (type, agent, search)
-- [ ] Real-time events appear without refresh
-- [ ] Agent filter populated from team's agents
+- [x] Events displayed with correct formatting
+- [x] Filters work (type, agent, search)
+- [x] Real-time events appear without refresh
+- [x] Agent filter populated from team's agents
 
 **Open Questions**: None
 
 ---
 
 ### Context Panel
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Display shared context store entries and project memory.
 
@@ -625,17 +660,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Stored in `teamContexts` Map by teamId
 
 **Acceptance Criteria**:
-- [ ] Context entries listed with metadata
-- [ ] Project memory entries shown separately
-- [ ] Real-time updates from WebSocket
-- [ ] Token counts and access counts displayed
+- [x] Context entries listed with metadata
+- [x] Project memory entries shown separately
+- [x] Real-time updates from WebSocket
+- [x] Token counts and access counts displayed
 
 **Open Questions**: None
 
 ---
 
 ### Files Panel
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Display files touched by agents with content viewer.
 
@@ -656,17 +691,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Stored in `teamFiles` Map by teamId
 
 **Acceptance Criteria**:
-- [ ] Modified files listed with metadata
-- [ ] File content viewable on click
-- [ ] Agent attribution shown per file
-- [ ] Files sorted by most recent modification
+- [x] Modified files listed with metadata
+- [x] File content viewable on click
+- [x] Agent attribution shown per file
+- [x] Files sorted by most recent modification
 
 **Open Questions**: None
 
 ---
 
 ### Catppuccin Mocha Theme
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Consistent dark theme across all UI elements using the Catppuccin Mocha palette.
 
@@ -704,17 +739,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - ANSI colors mapped to Catppuccin palette
 
 **Acceptance Criteria**:
-- [ ] All UI elements use Catppuccin Mocha colors
-- [ ] Terminal theme matches overall UI
-- [ ] No default/browser colors leak through
-- [ ] Sufficient contrast for readability
+- [x] All UI elements use Catppuccin Mocha colors
+- [x] Terminal theme matches overall UI
+- [x] No default/browser colors leak through
+- [x] Sufficient contrast for readability
 
 **Open Questions**: None
 
 ---
 
 ### CDN Dependencies
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: External libraries loaded from CDN (no local bundling).
 
@@ -743,17 +778,17 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 2. `<body>` (bottom): marked, xterm JS, addon-fit, addon-web-links, app.js
 
 **Acceptance Criteria**:
-- [ ] All CDN libraries load successfully
-- [ ] No local copies of libraries needed
-- [ ] Version pinning prevents unexpected breaks
-- [ ] Libraries used correctly (DOMPurify on user-facing content)
+- [x] All CDN libraries load successfully
+- [x] No local copies of libraries needed
+- [x] Version pinning prevents unexpected breaks
+- [x] Libraries used correctly (DOMPurify on user-facing content)
 
 **Open Questions**: None
 
 ---
 
 ### Toast Notifications
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Transient notifications for important events (idle warnings, kills).
 
@@ -773,8 +808,35 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - Auto-dismiss after a few seconds
 
 **Acceptance Criteria**:
-- [ ] Toast appears on idle warning/kill events
-- [ ] Duplicate events don't create duplicate toasts
-- [ ] Toast auto-dismisses after timeout
+- [x] Toast appears on idle warning/kill events
+- [x] Duplicate events don't create duplicate toasts
+- [x] Toast auto-dismisses after timeout
+
+**Open Questions**: None
+
+---
+
+### Usage Page (usage.html)
+> Status: [x] Done
+
+**Purpose**: Standalone HTML page providing usage documentation for Team Maker.
+
+**Responsibilities**:
+- Render usage instructions and documentation independently of the main app
+- Load without requiring the main app or server to be running
+
+**Interfaces**:
+- Input: None (static page)
+- Output: Rendered HTML documentation
+
+**Behavior / Rules**:
+- Served as a static file from `public/usage.html`
+- Independent of `index.html` and `app.js`
+- Accessible at `/usage.html`
+
+**Acceptance Criteria**:
+- [x] Page loads at /usage.html
+- [x] Content is readable and accurate
+- [x] Page loads independently without the main app running
 
 **Open Questions**: None

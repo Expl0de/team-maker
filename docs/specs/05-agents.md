@@ -1,6 +1,6 @@
 # Agent Orchestration
 
-> **Spec Status**: [ ] Draft
+> **Spec Status**: [x] Done
 > **Last Updated**: 2026-03-26
 
 ## Purpose
@@ -16,7 +16,7 @@ Covers the agent orchestration layer built on top of the core session/team infra
 ## Components / Features
 
 ### MCP Server Architecture
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Extend Claude Code with team management tools via the Model Context Protocol.
 
@@ -74,11 +74,11 @@ Claude Code CLI
 - Non-200 HTTP responses also return `isError: true`
 
 **Acceptance Criteria**:
-- [ ] MCP server starts and connects via stdio
-- [ ] All 17 tools registered and callable
-- [ ] Tool calls correctly proxied to HTTP server
-- [ ] Errors propagated back to Claude Code
-- [ ] TEAM_ID scoping ensures team isolation
+- [x] MCP server starts and connects via stdio
+- [x] All 17 tools registered and callable
+- [x] Tool calls correctly proxied to HTTP server
+- [x] Errors propagated back to Claude Code
+- [x] TEAM_ID scoping ensures team isolation
 
 **Open Questions**: None
 
@@ -87,7 +87,7 @@ Claude Code CLI
 ### MCP Tools — Agent Management
 
 #### spawn_agent
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Spawn a new agent in the team.
 
@@ -102,21 +102,30 @@ Claude Code CLI
 **Behavior**:
 1. POST /api/teams/{TEAM_ID}/agents with { name, prompt, model, taskComplexity }
 2. Server creates session via teamManager.addAgent()
-3. Model selection: explicit model > routing table[complexity] > team default
+3. Model selection — `model` acts as a ceiling, `taskComplexity` routes within that ceiling:
+   - Both `model` + `taskComplexity`: pick whichever is cheaper (routing can downgrade, never upgrade above `model`)
+   - Only `model`: use it directly
+   - Only `taskComplexity`: use routing table freely (no ceiling)
+   - Neither: team-level default, then no model
 4. Session spawned with autoAccept=true, MCP config, initialPrompt
 5. Returns agent ID and model info
+
+**Orchestrator usage pattern**: Always pass the role's configured `model` (as ceiling) together with `taskComplexity`. This ensures smart routing can save cost on simple tasks while never burning tokens on a model higher than the user configured.
 
 **Return**: `Agent "{name}" spawned with ID: {id} (model: {model})`
 
 **Acceptance Criteria**:
-- [ ] Agent spawned with correct name and prompt
-- [ ] Model routing applies correctly
-- [ ] Agent appears in list_agents output
+- [x] Agent spawned with correct name and prompt
+- [x] Model routing applies correctly
+- [x] `model` + `taskComplexity` together: cheaper of the two is selected
+- [x] `model` alone: used directly without routing
+- [x] `taskComplexity` alone: routing table applied freely
+- [x] Agent appears in list_agents output
 
 ---
 
 #### list_agents
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: List all agents in the team with their status.
 
@@ -127,16 +136,16 @@ Claude Code CLI
 **Return**: `- {name} ({id}) [{status}] role={role}` per agent, or "No agents in team."
 
 **Acceptance Criteria**:
-- [ ] All team agents listed
-- [ ] Status and role shown per agent
-- [ ] Session ID included for use with other tools
+- [x] All team agents listed
+- [x] Status and role shown per agent
+- [x] Session ID included for use with other tools
 
 ---
 
 ### MCP Tools — Messaging
 
 #### send_message
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Send a message to another agent. Dual delivery: queued server-side + instant PTY injection.
 
@@ -156,15 +165,15 @@ Claude Code CLI
 **Return**: `Message sent to {toName} (queued as {messageId})`
 
 **Acceptance Criteria**:
-- [ ] Message delivered instantly via PTY injection
-- [ ] Message queued for later retrieval
-- [ ] Sender name resolved from session ID
-- [ ] WebSocket broadcast triggers UI update
+- [x] Message delivered instantly via PTY injection
+- [x] Message queued for later retrieval
+- [x] Sender name resolved from session ID
+- [x] WebSocket broadcast triggers UI update
 
 ---
 
 #### check_inbox
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Retrieve unread messages for the calling agent.
 
@@ -178,14 +187,14 @@ Claude Code CLI
 **Return**: Formatted list with message IDs, sender names, timestamps, and content. Or "No unread messages."
 
 **Acceptance Criteria**:
-- [ ] Returns only unread messages
-- [ ] Message IDs included for mark_read
-- [ ] Sender names resolved
+- [x] Returns only unread messages
+- [x] Message IDs included for mark_read
+- [x] Sender names resolved
 
 ---
 
 #### mark_read
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Acknowledge messages after processing.
 
@@ -200,16 +209,16 @@ Claude Code CLI
 **Return**: Confirmation text (e.g., "Marked 3 message(s) as read")
 
 **Acceptance Criteria**:
-- [ ] Single message marked as read
-- [ ] "all" marks all unread messages for the agent
-- [ ] Marked messages excluded from future check_inbox
+- [x] Single message marked as read
+- [x] "all" marks all unread messages for the agent
+- [x] Marked messages excluded from future check_inbox
 
 ---
 
 ### MCP Tools — Task Board
 
 #### create_task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Create a task on the team's shared task board.
 
@@ -227,15 +236,15 @@ Claude Code CLI
 **Return**: `Task created: "{title}" (ID: {id})`
 
 **Acceptance Criteria**:
-- [ ] Task created with pending status
-- [ ] Dependencies recorded
-- [ ] Complexity stored for routing
-- [ ] Creator name resolved from session ID
+- [x] Task created with pending status
+- [x] Dependencies recorded
+- [x] Complexity stored for routing
+- [x] Creator name resolved from session ID
 
 ---
 
 #### claim_task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Claim a pending task. Dependencies must be completed first.
 
@@ -257,15 +266,15 @@ Claude Code CLI
 - Unmet dependencies: "Blocked by unfinished dependencies: {list}"
 
 **Acceptance Criteria**:
-- [ ] Pending tasks can be claimed
-- [ ] Non-pending tasks rejected
-- [ ] Unmet dependencies reported with names
-- [ ] Assignee recorded
+- [x] Pending tasks can be claimed
+- [x] Non-pending tasks rejected
+- [x] Unmet dependencies reported with names
+- [x] Assignee recorded
 
 ---
 
 #### complete_task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Mark a task as completed with a result summary.
 
@@ -281,15 +290,15 @@ Claude Code CLI
 **Return**: `Task completed: "{title}"`
 
 **Acceptance Criteria**:
-- [ ] Only assigned/in_progress tasks can be completed
-- [ ] Only the assigned agent can complete
-- [ ] Result summary stored
-- [ ] Dependent tasks become claimable
+- [x] Only assigned/in_progress tasks can be completed
+- [x] Only the assigned agent can complete
+- [x] Result summary stored
+- [x] Dependent tasks become claimable
 
 ---
 
 #### fail_task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Mark a task as failed so the orchestrator can reassign it.
 
@@ -305,15 +314,15 @@ Claude Code CLI
 **Return**: `Task failed: "{title}" — reason: {reason}`
 
 **Acceptance Criteria**:
-- [ ] Only assigned/in_progress tasks can be failed
-- [ ] Assignee cleared for reassignment
-- [ ] Failure reason stored
-- [ ] Task can be retried later
+- [x] Only assigned/in_progress tasks can be failed
+- [x] Assignee cleared for reassignment
+- [x] Failure reason stored
+- [x] Task can be retried later
 
 ---
 
 #### get_tasks
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: View the team's task board with optional filters.
 
@@ -332,17 +341,17 @@ Claude Code CLI
 - Summary: `{"total":N,"pending":N,...}`
 
 **Acceptance Criteria**:
-- [ ] All tasks listed with full metadata
-- [ ] Filters work by status and assignee
-- [ ] Summary counts included
-- [ ] Dependencies shown
+- [x] All tasks listed with full metadata
+- [x] Filters work by status and assignee
+- [x] Summary counts included
+- [x] Dependencies shown
 
 ---
 
 ### MCP Tools — Context Store
 
 #### store_context
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Share knowledge with the team to prevent redundant file reads.
 
@@ -359,15 +368,15 @@ Claude Code CLI
 **Return**: `Context stored: "{key}" (~{tokens} tokens). Other agents can find it with list_context() or query_context("{key}").`
 
 **Acceptance Criteria**:
-- [ ] Context stored with token estimation
-- [ ] Existing key updated (upsert)
-- [ ] WebSocket event broadcast
-- [ ] LRU eviction if over limits
+- [x] Context stored with token estimation
+- [x] Existing key updated (upsert)
+- [x] WebSocket event broadcast
+- [x] LRU eviction if over limits
 
 ---
 
 #### query_context
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Search the team's shared context by keywords.
 
@@ -381,15 +390,15 @@ Claude Code CLI
 **Return**: Matching entries with full content, scores, and storer names. Or "No context found matching..."
 
 **Acceptance Criteria**:
-- [ ] Keyword matching works on keys and summaries
-- [ ] Full content returned for matches
-- [ ] Results ranked by relevance score
-- [ ] Access counts updated
+- [x] Keyword matching works on keys and summaries
+- [x] Full content returned for matches
+- [x] Results ranked by relevance score
+- [x] Access counts updated
 
 ---
 
 #### list_context
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Discover what knowledge the team already has.
 
@@ -400,16 +409,16 @@ Claude Code CLI
 **Return**: Entry list with key, token count, storer name, access count. Or "No shared context stored yet."
 
 **Acceptance Criteria**:
-- [ ] All entries listed with metadata
-- [ ] No full content returned (lightweight)
-- [ ] Helps agents decide whether to query or read files
+- [x] All entries listed with metadata
+- [x] No full content returned (lightweight)
+- [x] Helps agents decide whether to query or read files
 
 ---
 
 ### MCP Tools — Project Memory
 
 #### store_project_memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Persist knowledge across teams for the same project.
 
@@ -425,15 +434,15 @@ Claude Code CLI
 **Return**: `Project memory stored: "{key}". Future teams on this project will see this in their context.`
 
 **Acceptance Criteria**:
-- [ ] Entry persisted in project directory
-- [ ] Available to future teams via snapshot
-- [ ] Summary appears in orchestrator prompt
-- [ ] No secrets stored (guideline, not enforced)
+- [x] Entry persisted in project directory
+- [x] Available to future teams via snapshot
+- [x] Summary appears in orchestrator prompt
+- [x] No secrets stored (guideline, not enforced)
 
 ---
 
 #### query_project_memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Search project memory across keys, summaries, and content.
 
@@ -447,14 +456,14 @@ Claude Code CLI
 **Return**: Matching entries with full content and relevance scores. Or "No project memory found matching..."
 
 **Acceptance Criteria**:
-- [ ] Searches across keys, summaries, and content
-- [ ] Includes deprecated entries (still searchable)
-- [ ] Results ranked by score
+- [x] Searches across keys, summaries, and content
+- [x] Includes deprecated entries (still searchable)
+- [x] Results ranked by score
 
 ---
 
 #### list_project_memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Discover what previous teams have documented.
 
@@ -465,14 +474,14 @@ Claude Code CLI
 **Return**: Entry list with key, summary, stored-by label, last updated date. Or "No project memory stored yet."
 
 **Acceptance Criteria**:
-- [ ] All entries listed including deprecated
-- [ ] Deprecated entries marked
-- [ ] Summary and storer info shown
+- [x] All entries listed including deprecated
+- [x] Deprecated entries marked
+- [x] Summary and storer info shown
 
 ---
 
 #### deprecate_project_memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Mark a project memory entry as stale when it no longer reflects reality.
 
@@ -487,15 +496,15 @@ Claude Code CLI
 **Return**: `Project memory entry "{key}" marked as deprecated. It will no longer appear in future team prompts.`
 
 **Acceptance Criteria**:
-- [ ] Entry marked deprecated (not deleted)
-- [ ] Excluded from future team prompt snapshots
-- [ ] Still searchable via query_project_memory
-- [ ] Reason recorded
+- [x] Entry marked deprecated (not deleted)
+- [x] Excluded from future team prompt snapshots
+- [x] Still searchable via query_project_memory
+- [x] Reason recorded
 
 ---
 
 ### Agent Lifecycle
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Define the complete lifecycle of agents from creation to completion.
 
@@ -561,17 +570,17 @@ Claude Code CLI
 | completed | PTY exit | Session finished |
 
 **Acceptance Criteria**:
-- [ ] Agents progress through all lifecycle stages
-- [ ] State tracking reflects actual agent activity
-- [ ] Idle management prevents resource waste
-- [ ] Clean exit and resource cleanup
+- [x] Agents progress through all lifecycle stages
+- [x] State tracking reflects actual agent activity
+- [x] Idle management prevents resource waste
+- [x] Clean exit and resource cleanup
 
 **Open Questions**: None
 
 ---
 
 ### Task Board State Machine
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Define the formal state machine for task transitions.
 
@@ -639,18 +648,18 @@ Claude Code CLI
 - Used by orchestrator when spawning agents with `taskComplexity` param
 
 **Acceptance Criteria**:
-- [ ] All valid transitions work
-- [ ] Invalid transitions rejected with error
-- [ ] Dependencies checked on claim
-- [ ] Failed tasks retain history (failReason) after retry
-- [ ] Complexity stored and queryable
+- [x] All valid transitions work
+- [x] Invalid transitions rejected with error
+- [x] Dependencies checked on claim
+- [x] Failed tasks retain history (failReason) after retry
+- [x] Complexity stored and queryable
 
 **Open Questions**: None
 
 ---
 
 ### Messaging Flow
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Define the complete message delivery and retrieval flow.
 
@@ -710,17 +719,17 @@ Agent B calls check_inbox(agentId=B)
 - `\r` at end to submit as user input (after 300ms delay)
 
 **Acceptance Criteria**:
-- [ ] Messages delivered instantly via PTY
-- [ ] Messages also queued for reliable retrieval
-- [ ] Read status tracked
-- [ ] History queryable per agent and per team
+- [x] Messages delivered instantly via PTY
+- [x] Messages also queued for reliable retrieval
+- [x] Read status tracked
+- [x] History queryable per agent and per team
 
 **Open Questions**: None
 
 ---
 
 ### Context Store Usage Patterns
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Define recommended patterns for using the shared context store effectively.
 
@@ -761,17 +770,17 @@ Agent B calls check_inbox(agentId=B)
 - Not checking context before reading files (wasteful)
 
 **Acceptance Criteria**:
-- [ ] Agents check context before reading files
-- [ ] First agent stores codebase analysis
-- [ ] Subsequent agents reuse stored context
-- [ ] Key names are descriptive and consistent
+- [x] Agents check context before reading files
+- [x] First agent stores codebase analysis
+- [x] Subsequent agents reuse stored context
+- [x] Key names are descriptive and consistent
 
 **Open Questions**: None
 
 ---
 
 ### Project Memory Persistence
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Define how knowledge persists across teams for the same project.
 
@@ -833,17 +842,17 @@ Agent discovers entry is outdated
 - Allows `project-memory.json` to be committed if desired
 
 **Acceptance Criteria**:
-- [ ] Memory persists across team sessions
-- [ ] Snapshot appears in new team orchestrator prompts
-- [ ] Deprecated entries excluded from snapshot
-- [ ] .gitignore protects session dirs
+- [x] Memory persists across team sessions
+- [x] Snapshot appears in new team orchestrator prompts
+- [x] Deprecated entries excluded from snapshot
+- [x] .gitignore protects session dirs
 
 **Open Questions**: None
 
 ---
 
 ### Orchestrator Pattern
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Define the behavior pattern for Agent 0 (the orchestrator).
 
@@ -909,18 +918,18 @@ Agent discovers entry is outdated
 - Starting work before user confirms (user might want to adjust plan)
 
 **Acceptance Criteria**:
-- [ ] Orchestrator waits for user confirmation before starting
-- [ ] Tasks created with proper dependencies
-- [ ] Agents spawned only when tasks are unblocked
-- [ ] Orchestrator coordinates, does not implement
-- [ ] All tasks tracked through to completion
+- [x] Orchestrator waits for user confirmation before starting
+- [x] Tasks created with proper dependencies
+- [x] Agents spawned only when tasks are unblocked
+- [x] Orchestrator coordinates, does not implement
+- [x] All tasks tracked through to completion
 
 **Open Questions**: None
 
 ---
 
 ### Smart Model Routing
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Automatically select the appropriate Claude model based on task complexity.
 
@@ -942,21 +951,34 @@ Agent discovers entry is outdated
 | medium | claude-sonnet-4-6 | Standard coding, reviews, testing |
 | high | claude-opus-4-6 | Architecture, complex debugging, multi-file refactors |
 
-**Selection Priority** (highest to lowest):
-1. Explicit `model` parameter on spawn_agent
-2. Routing table lookup by `taskComplexity`
-3. Team-level default model
-4. No model specified (Claude Code default)
+**Model Selection Logic** (in `addAgent`):
+- `model` is a **ceiling** — it caps how expensive routing can go, but routing can still pick a cheaper model
+- `taskComplexity` selects a model from the routing table
+- When both are provided: whichever is cheaper wins (routing downgrades are allowed, upgrades above ceiling are blocked)
+- When only `model`: used directly (no routing applied)
+- When only `taskComplexity`: routing table applied freely (no ceiling)
+- When neither: team-level default, then no model
+
+**Priority fallback** (when no ceiling/routing resolves a model):
+1. `model` parameter (direct or ceiling)
+2. `team.modelRouting[taskComplexity]`
+3. `team.model` (team-level default)
+4. No model (Claude Code default)
 
 **Configuration**:
 - Set on team creation via `modelRouting` param
 - Updatable via PUT /api/teams/{teamId}/model-routing
 - Viewable via GET /api/teams/{teamId}/model-routing (includes defaults)
 
+**Orchestrator spawn instructions**: The orchestrator prompt includes each role's configured `model` in the spawn line (e.g., `name="Builder", model="claude-sonnet-4-6"`). The orchestrator is instructed to always pass both `model` and `taskComplexity` when spawning — this enforces the ceiling while still allowing routing to save cost on low-complexity tasks.
+
 **Acceptance Criteria**:
-- [ ] Default routing table applied when enabled
-- [ ] Per-team override works
-- [ ] Explicit model always takes precedence
-- [ ] Complexity tag on tasks informs routing
+- [x] Default routing table applied when enabled
+- [x] Per-team override works
+- [x] `model` acts as ceiling: routing can go lower but never higher
+- [x] `model` alone (no taskComplexity) used directly
+- [x] `taskComplexity` alone: routing table applied with no ceiling
+- [x] Complexity tag on tasks informs routing
+- [x] Orchestrator spawn instructions include role model as ceiling hint
 
 **Open Questions**: None

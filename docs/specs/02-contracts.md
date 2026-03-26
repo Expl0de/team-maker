@@ -1,6 +1,6 @@
 # Contracts & Interfaces
 
-> **Spec Status**: [ ] Draft
+> **Spec Status**: [x] Done
 > **Last Updated**: 2026-03-26
 
 ## Purpose
@@ -18,7 +18,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Sessions
 
 #### POST /api/sessions — Create Session
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -57,14 +57,14 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/sessions — List Sessions
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `Session[]` (same shape as POST response)
 
 ---
 
 #### GET /api/sessions/:id — Get Session
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `Session` object
 **Errors**: 404 (Session not found)
@@ -72,7 +72,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### DELETE /api/sessions/:id — Destroy Session
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "ok": true }`
 **Errors**: 404 (Session not found)
@@ -80,7 +80,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/sessions/:id/resize — Resize PTY
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -96,7 +96,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/sessions/:id/clear — Clear Agent Context
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: None
 
@@ -115,7 +115,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/sessions/:id/input — Inject PTY Input
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -134,7 +134,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Teams
 
 #### POST /api/teams — Create Team
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -187,14 +187,14 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams — List Teams
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `Team[]`
 
 ---
 
 #### GET /api/teams/:teamId — Get Team
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `Team` object
 **Errors**: 404
@@ -202,7 +202,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### DELETE /api/teams/:teamId — Destroy Team
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "ok": true }`
 **Errors**: 404
@@ -212,7 +212,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/export — Export Team Config
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200):
 ```json
@@ -231,7 +231,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/import — Import Team Config
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: Same shape as export response (name and prompt required)
 **Response** (200): `{ team, mainAgent }` (same as POST /api/teams)
@@ -240,7 +240,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/relaunch — Relaunch Stopped Team
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ team, mainAgent }`
 **Errors**: 404 (Team not found or already running)
@@ -250,7 +250,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/model-routing — Get Model Routing
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200):
 ```json
@@ -267,7 +267,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### PUT /api/teams/:teamId/model-routing — Update Model Routing
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -284,14 +284,14 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/agents — Spawn Agent
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
 {
   "name": "string (required)",
   "prompt": "string (required)",
-  "model": "string (optional, explicit override)",
+  "model": "string (optional, ceiling — routing will not exceed this)",
   "taskComplexity": "'low'|'medium'|'high' (optional, for routing table)"
 }
 ```
@@ -299,14 +299,14 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 **Response** (200): `Session` object
 **Errors**: 400 (name/prompt required), 404 (Team not found)
 
-**Model Selection Priority**: explicit model > routing table[taskComplexity] > team default
+**Model Selection**: `model` acts as a ceiling; `taskComplexity` selects from the routing table within that ceiling. When both are provided, the cheaper of the two is used (routing can downgrade but never upgrade above the ceiling). When only `model` is provided, it is used directly. When only `taskComplexity` is provided, routing applies freely. Falls back to team default, then no model.
 
 **Side Effects**: Broadcasts `{ type: "team-update", event: "agent-added" }`
 
 ---
 
 #### GET /api/teams/:teamId/agents — List Team Agents
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `Session[]` (agents in team, with `{ id, status: "unknown" }` for dead sessions)
 **Errors**: 404
@@ -314,7 +314,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### DELETE /api/teams/:teamId/agents/:agentId — Remove Agent
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "ok": true }`
 **Errors**: 404
@@ -324,7 +324,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/agents/:agentId/restart — Restart Agent
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200):
 ```json
@@ -342,7 +342,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/agents/:agentId/keep-alive — Reset Idle Timer
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "ok": true }`
 **Errors**: 404
@@ -350,7 +350,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/usage — Get Usage Stats
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200):
 ```json
@@ -377,7 +377,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Messages
 
 #### POST /api/messages/send — Send Message
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -397,7 +397,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/messages/inbox?agentId= — Get Unread Messages
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200):
 ```json
@@ -415,7 +415,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/messages/read — Mark Messages Read
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -431,7 +431,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/messages — Get Team Message History
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `Message[]` sorted by timestamp
 ```json
@@ -448,7 +448,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Tasks
 
 #### POST /api/teams/:teamId/tasks — Create Task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -480,7 +480,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/tasks — List Tasks
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Query Params**: `?status=pending|assigned|in_progress|completed|failed`, `?assignedTo=agentId`
 
@@ -495,7 +495,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/tasks/:taskId/claim — Claim Task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: `{ "agentId": "string (required)" }`
 **Response** (200): `{ "task": Task }`
@@ -506,7 +506,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/tasks/:taskId/complete — Complete Task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: `{ "agentId": "string (required)", "result": "string (optional)" }`
 **Response** (200): `{ "task": Task }`
@@ -517,7 +517,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/tasks/:taskId/fail — Fail Task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: `{ "agentId": "string (required)", "reason": "string (optional)" }`
 **Response** (200): `{ "task": Task }`
@@ -528,7 +528,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/tasks/:taskId/retry — Retry Failed Task
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: None
 **Response** (200): `{ "task": Task }`
@@ -541,7 +541,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Context Store
 
 #### POST /api/teams/:teamId/context — Store Context Entry
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -570,7 +570,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/context — List Context Entries
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200):
 ```json
@@ -583,7 +583,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/context/query?q= — Search Context
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Query Params**: `q` (required, keywords)
 **Response** (200): `{ "results": [{ key, content, summary, score, storedByName, tokens, accessCount }] }`
@@ -591,7 +591,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/context/:key — Get Context Entry
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "entry": { full entry with content } }`
 **Errors**: 404
@@ -599,7 +599,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### DELETE /api/teams/:teamId/context/:key — Delete Context Entry
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "ok": true }`
 **Errors**: 404
@@ -609,7 +609,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Project Memory
 
 #### GET /api/project-memory?cwd= — Preview Project Memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Query Params**: `cwd` (required)
 **Response** (200):
@@ -625,7 +625,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/project-memory — Store Memory Entry
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**:
 ```json
@@ -643,14 +643,14 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/project-memory — List Memory Entries
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "entries": [{ key, summary, storedBy, lastUpdated, tags, deprecated, deprecatedReason }] }`
 
 ---
 
 #### GET /api/teams/:teamId/project-memory/:key — Get Memory Entry
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "entry": { key, content, summary, storedBy, lastUpdated, ... } }`
 **Errors**: 404
@@ -658,7 +658,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/project-memory/query — Search Memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: `{ "query": "string (required)" }`
 **Response** (200): `{ "results": [{ key, score, content, summary, storedBy, deprecated }] }`
@@ -666,7 +666,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### DELETE /api/teams/:teamId/project-memory/:key — Deprecate Memory Entry
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: `{ "reason": "string (optional)" }`
 **Response** (200): `{ "entry": { ...entry with deprecated: true } }`
@@ -679,7 +679,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Events & Files
 
 #### GET /api/teams/:teamId/events — Get Agent Events
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Query Params**: `?type=tool_call|tool_result|assistant_message|turn_complete|thinking`, `?sessionId=uuid`, `?limit=number`
 
@@ -701,7 +701,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/files — Get Touched Files
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200):
 ```json
@@ -720,7 +720,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/teams/:teamId/files/read?path= — Read File Content
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Query Params**: `path` (required, absolute path)
 **Response** (200): `{ "path": "string", "content": "string" }`
@@ -733,14 +733,14 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Templates & Other
 
 #### GET /api/templates — List Templates
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `[{ "id": "uuid", "name": "string", "roles": Role[], "createdAt": "ISO8601" }]`
 
 ---
 
 #### POST /api/templates — Save Template
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Request Body**: `{ "name": "string (required)", "roles": "Role[] (required)" }`
 **Response** (200): `Template` object
@@ -748,7 +748,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### DELETE /api/templates/:id — Delete Template
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "ok": true }`
 **Errors**: 404
@@ -756,14 +756,14 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/health — Health Check
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "ok": true, "uptime": "number (seconds)" }`
 
 ---
 
 #### GET /api/browse-folder — macOS Finder Dialog
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200): `{ "path": "string" }` or `{ "cancelled": true }`
 
@@ -772,7 +772,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### GET /api/builtin-roles — Get Role Definitions
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Response** (200):
 ```json
@@ -797,7 +797,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ## WebSocket Protocol
 
 ### Connection
-> Status: [ ] Pending
+> Status: [x] Done
 
 - **URL**: `ws://localhost:{PORT}` (same port as HTTP server, default 3456)
 - **Origin Validation**: Only `https?://(localhost|127.0.0.1)(:\d+)?` origins accepted; no-origin (non-browser clients) allowed
@@ -806,7 +806,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ### Client → Server Messages
 
 #### attach — Attach to Session Terminal
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 { "type": "attach", "sessionId": "uuid" }
@@ -824,7 +824,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### resize — Resize Terminal
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 { "type": "resize", "cols": "integer (1-500)", "rows": "integer (1-500)" }
@@ -835,7 +835,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### input — Terminal Input
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 { "type": "input", "data": "string" }
@@ -846,7 +846,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### Raw String — Terminal Input (fallback)
-> Status: [ ] Pending
+> Status: [x] Done
 
 Non-JSON messages are treated as raw terminal input and forwarded to the attached session.
 
@@ -855,14 +855,14 @@ Non-JSON messages are treated as raw terminal input and forwarded to the attache
 ### Server → Client Messages (Per-Session)
 
 #### Raw Terminal Data
-> Status: [ ] Pending
+> Status: [x] Done
 
 Raw string/binary PTY output. Not JSON-wrapped.
 
 ---
 
 #### attached — Session Attached Confirmation
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 { "type": "attached", "sessionId": "uuid" }
@@ -871,7 +871,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### exit — Session Exited
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 { "type": "exit", "exitCode": "integer" }
@@ -880,7 +880,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### question — Permission Dialog Detected
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 { "type": "question", "sessionId": "uuid" }
@@ -892,7 +892,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### activity — PTY Output Activity
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 { "type": "activity", "sessionId": "uuid", "active": "boolean" }
@@ -903,7 +903,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### agent_state — Agent State Change
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 {
@@ -919,7 +919,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ### Server → Client Messages (Broadcast)
 
 #### team-update — Team Lifecycle Events
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 {
@@ -939,7 +939,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### agent-event — Structured Agent Events
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 {
@@ -967,7 +967,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### agent-idle — Idle Timeout Events
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 {
@@ -988,7 +988,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### team-task — Task Board Events
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 {
@@ -1002,7 +1002,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### team-context — Context Store Events
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 {
@@ -1016,7 +1016,7 @@ Raw string/binary PTY output. Not JSON-wrapped.
 ---
 
 #### team-message — New Message
-> Status: [ ] Pending
+> Status: [x] Done
 
 ```json
 {
@@ -1039,14 +1039,14 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 > For behavioral documentation, usage patterns, acceptance criteria, and agent orchestration flows for each tool, see [05-agents.md](05-agents.md).
 
 ### spawn_agent
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | name | z.string() | Yes | Name for the new agent |
 | prompt | z.string() | Yes | Task/prompt for the agent |
-| model | z.string() | No | Explicit model override |
-| taskComplexity | z.enum(["low","medium","high"]) | No | Auto-select model from routing table |
+| model | z.string() | No | Ceiling model — routing may go cheaper but never above this. Used directly when no taskComplexity. |
+| taskComplexity | z.enum(["low","medium","high"]) | No | Selects model from routing table; capped by `model` if provided |
 
 **Returns**: `Agent "{name}" spawned with ID: {id} (model: {model})`
 **REST**: POST /api/teams/{TEAM_ID}/agents
@@ -1054,7 +1054,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### list_agents
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1066,7 +1066,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### send_message
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1080,7 +1080,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### check_inbox
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1092,7 +1092,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### mark_read
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1105,7 +1105,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### create_task
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1121,7 +1121,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### claim_task
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1134,7 +1134,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### complete_task
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1148,7 +1148,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### fail_task
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1162,7 +1162,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### get_tasks
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1175,7 +1175,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### store_context
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1190,7 +1190,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### query_context
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1202,7 +1202,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### list_context
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1214,7 +1214,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### store_project_memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1228,7 +1228,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### query_project_memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1240,7 +1240,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### list_project_memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -1252,7 +1252,7 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 ---
 
 ### deprecate_project_memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|

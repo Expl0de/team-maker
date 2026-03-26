@@ -1,6 +1,6 @@
 # Architecture
 
-> **Spec Status**: [ ] Draft
+> **Spec Status**: [x] Done
 > **Last Updated**: 2026-03-26
 
 ## Purpose
@@ -187,7 +187,7 @@ teamManager.create()
 ## Components / Features
 
 ### Express HTTP Server
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Central HTTP server handling REST API requests and WebSocket connections.
 
@@ -211,17 +211,17 @@ teamManager.create()
 - CWD validation (must exist, must be directory) on session/team creation
 
 **Acceptance Criteria**:
-- [ ] All REST endpoints return correct responses
-- [ ] WebSocket connections establish and stream terminal data
-- [ ] Origin validation blocks non-localhost connections
-- [ ] Graceful shutdown kills all PTY processes and flushes state
+- [x] All REST endpoints return correct responses
+- [x] WebSocket connections establish and stream terminal data
+- [x] Origin validation blocks non-localhost connections
+- [x] Graceful shutdown kills all PTY processes and flushes state
 
 **Open Questions**: None
 
 ---
 
 ### SessionManager + Session
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Manage the lifecycle of PTY-backed Claude Code CLI processes.
 
@@ -249,18 +249,18 @@ teamManager.create()
 - Health check ping every 5min for team agents idle >4min
 
 **Acceptance Criteria**:
-- [ ] Sessions spawn PTY processes with correct arguments
-- [ ] Scrollback buffer is maintained and sent to new clients
-- [ ] Agent state transitions are tracked from JSONL events
-- [ ] Permission dialogs trigger question alerts
-- [ ] Idle agents are warned at 5min and killed at 10min
+- [x] Sessions spawn PTY processes with correct arguments
+- [x] Scrollback buffer is maintained and sent to new clients
+- [x] Agent state transitions are tracked from JSONL events
+- [x] Permission dialogs trigger question alerts
+- [x] Idle agents are warned at 5min and killed at 10min
 
 **Open Questions**: None
 
 ---
 
 ### TeamManager + Team
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Manage multi-agent teams and their configuration.
 
@@ -280,22 +280,22 @@ teamManager.create()
 - MCP config at `/tmp/team-maker-mcp-{teamId}.json` with TEAM_ID + TEAM_MAKER_PORT env vars
 - Orchestrator prompt includes full MCP tool documentation and sub-agent template
 - Model routing: low → Haiku, medium → Sonnet, high → Opus (configurable)
-- Model priority: explicit model > routing table > team default
+- Model selection: `model` is a **ceiling** — routing picks from the table by `taskComplexity` but never exceeds this cap. Both provided: cheaper wins. Only `model`: used directly. Only `taskComplexity`: routing applies freely. Neither: team default, then no model.
 - Teams restored as "stopped" on server restart (PTY processes don't survive)
 - Relaunch creates new orchestrator session with same config
 
 **Acceptance Criteria**:
-- [ ] Teams are created with orchestrator and correct MCP config
-- [ ] Sub-agents can be spawned with model routing
-- [ ] Teams persist across server restarts
-- [ ] Stopped teams can be relaunched
+- [x] Teams are created with orchestrator and correct MCP config
+- [x] Sub-agents can be spawned with model routing
+- [x] Teams persist across server restarts
+- [x] Stopped teams can be relaunched
 
 **Open Questions**: None
 
 ---
 
 ### TaskBoard
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Track work items across a team of agents with dependency management.
 
@@ -317,17 +317,17 @@ teamManager.create()
 - Complexity: low/medium/high (maps to model routing)
 
 **Acceptance Criteria**:
-- [ ] Tasks transition through all valid states
-- [ ] Dependencies block claiming until satisfied
-- [ ] Task events broadcast over WebSocket
-- [ ] Tasks persist across server restarts
+- [x] Tasks transition through all valid states
+- [x] Dependencies block claiming until satisfied
+- [x] Task events broadcast over WebSocket
+- [x] Tasks persist across server restarts
 
 **Open Questions**: None
 
 ---
 
 ### MessageQueue
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Enable inter-agent communication with both instant delivery and reliable queuing.
 
@@ -349,17 +349,17 @@ teamManager.create()
 - mark_read supports single message or "all" for an agent
 
 **Acceptance Criteria**:
-- [ ] Messages delivered instantly via PTY injection
-- [ ] Messages retrievable via check_inbox
-- [ ] Read status tracked per message
-- [ ] Messages persist across server restarts
+- [x] Messages delivered instantly via PTY injection
+- [x] Messages retrievable via check_inbox
+- [x] Read status tracked per message
+- [x] Messages persist across server restarts
 
 **Open Questions**: None
 
 ---
 
 ### ContextStore
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Shared key-value knowledge store to prevent redundant work across agents.
 
@@ -380,17 +380,17 @@ teamManager.create()
 - Access count incremented on query/get (affects LRU priority)
 
 **Acceptance Criteria**:
-- [ ] Context can be stored, queried, and retrieved
-- [ ] LRU eviction works when limits exceeded
-- [ ] Context persists across server restarts
-- [ ] Events broadcast on store/invalidate
+- [x] Context can be stored, queried, and retrieved
+- [x] LRU eviction works when limits exceeded
+- [x] Context persists across server restarts
+- [x] Events broadcast on store/invalidate
 
 **Open Questions**: None
 
 ---
 
 ### StateStore
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Persistent JSON storage for all server state.
 
@@ -411,17 +411,17 @@ teamManager.create()
 - Corruption: backup corrupted file, start fresh with default state
 
 **Acceptance Criteria**:
-- [ ] State persists across server restarts
-- [ ] Debounced writes reduce disk I/O
-- [ ] Corrupted state file triggers backup + recovery
-- [ ] All modules can read/write state independently
+- [x] State persists across server restarts
+- [x] Debounced writes reduce disk I/O
+- [x] Corrupted state file triggers backup + recovery
+- [x] All modules can read/write state independently
 
 **Open Questions**: None
 
 ---
 
 ### ProjectMemoryStore
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: File-based persistent memory scoped to a project working directory.
 
@@ -442,17 +442,17 @@ teamManager.create()
 - Snapshot injected into new team orchestrator prompts
 
 **Acceptance Criteria**:
-- [ ] Memory entries persist in project directory
-- [ ] Prior knowledge appears in new team orchestrator prompts
-- [ ] Deprecated entries excluded from active snapshot
-- [ ] .gitignore created automatically
+- [x] Memory entries persist in project directory
+- [x] Prior knowledge appears in new team orchestrator prompts
+- [x] Deprecated entries excluded from active snapshot
+- [x] .gitignore created automatically
 
 **Open Questions**: None
 
 ---
 
 ### JsonlParser + JsonlWatcher
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Parse Claude Code JSONL log files for structured agent events.
 
@@ -472,17 +472,17 @@ teamManager.create()
 - Tool input summarization truncates large payloads
 
 **Acceptance Criteria**:
-- [ ] Events extracted from JSONL in real-time
-- [ ] Adaptive polling reduces resource usage during idle
-- [ ] All event types correctly parsed
-- [ ] Tool inputs summarized without losing key information
+- [x] Events extracted from JSONL in real-time
+- [x] Adaptive polling reduces resource usage during idle
+- [x] All event types correctly parsed
+- [x] Tool inputs summarized without losing key information
 
 **Open Questions**: None
 
 ---
 
 ### Frontend (Browser)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Browser-based UI for managing teams, viewing terminals, and monitoring agent activity.
 
@@ -506,11 +506,11 @@ teamManager.create()
 - Toast notifications for idle warnings/kills
 
 **Acceptance Criteria**:
-- [ ] Terminals render correctly with real-time I/O
-- [ ] All panels show correct real-time data
-- [ ] Modals support team/agent creation with all options
-- [ ] Question alerts trigger visual and audio indicators
-- [ ] Tab state persists across page reloads
+- [x] Terminals render correctly with real-time I/O
+- [x] All panels show correct real-time data
+- [x] Modals support team/agent creation with all options
+- [x] Question alerts trigger visual and audio indicators
+- [x] Tab state persists across page reloads
 
 **Open Questions**: None
 

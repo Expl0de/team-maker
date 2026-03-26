@@ -1,6 +1,6 @@
 # Backend
 
-> **Spec Status**: [ ] Draft
+> **Spec Status**: [x] Done
 > **Last Updated**: 2026-03-26
 
 ## Purpose
@@ -16,7 +16,7 @@ Covers all 11 server-side modules in `server/`. For API contract details, see [0
 ## Components / Features
 
 ### Express HTTP Server (server/index.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Central entry point — HTTP server, WebSocket server, REST API routing, event broadcasting, and lifecycle management.
 
@@ -57,18 +57,18 @@ Covers all 11 server-side modules in `server/`. For API contract details, see [0
 5. `setTimeout(() => process.exit(0), 500)` — allow cleanup
 
 **Acceptance Criteria**:
-- [ ] Server starts and serves on configured port
-- [ ] All REST endpoints respond correctly
-- [ ] WebSocket connections established with origin validation
-- [ ] Events broadcast to all connected clients
-- [ ] Graceful shutdown kills all processes and flushes state
+- [x] Server starts and serves on configured port
+- [x] All REST endpoints respond correctly
+- [x] WebSocket connections established with origin validation
+- [x] Events broadcast to all connected clients
+- [x] Graceful shutdown kills all processes and flushes state
 
 **Open Questions**: None
 
 ---
 
 ### PTY Process Lifecycle (server/sessionManager.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Spawn, manage, and clean up PTY-backed Claude Code CLI processes.
 
@@ -134,18 +134,18 @@ Env: { ...process.env, TERM: "xterm-256color" }
 6. Set status to "exited"
 
 **Acceptance Criteria**:
-- [ ] PTY spawns with correct arguments based on session config
-- [ ] Auto-accept trust dialog works reliably
-- [ ] Prompt injection waits for ready signal before pasting
-- [ ] Scrollback buffer maintained at 100KB cap
-- [ ] Kill cleans up all timers and resources
+- [x] PTY spawns with correct arguments based on session config
+- [x] Auto-accept trust dialog works reliably
+- [x] Prompt injection waits for ready signal before pasting
+- [x] Scrollback buffer maintained at 100KB cap
+- [x] Kill cleans up all timers and resources
 
 **Open Questions**: None
 
 ---
 
 ### Session Management
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: CRUD operations on sessions, client tracking, and serialization.
 
@@ -192,17 +192,17 @@ Env: { ...process.env, TERM: "xterm-256color" }
 - On attach: send scrollback buffer + attached + activity + agent_state messages
 
 **Acceptance Criteria**:
-- [ ] Sessions created with auto-incrementing names
-- [ ] WebSocket clients tracked per session
-- [ ] Destroy kills PTY and removes session
-- [ ] toJSON includes all relevant state
+- [x] Sessions created with auto-incrementing names
+- [x] WebSocket clients tracked per session
+- [x] Destroy kills PTY and removes session
+- [x] toJSON includes all relevant state
 
 **Open Questions**: None
 
 ---
 
 ### Scrollback Buffer
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Maintain a rolling buffer of PTY output for reconnecting clients.
 
@@ -222,17 +222,17 @@ Env: { ...process.env, TERM: "xterm-256color" }
 - Cleared on `clearContext()` call
 
 **Acceptance Criteria**:
-- [ ] Buffer accumulates PTY output
-- [ ] Buffer never exceeds 100KB
-- [ ] Reconnecting clients receive scrollback
-- [ ] Clear resets buffer to empty
+- [x] Buffer accumulates PTY output
+- [x] Buffer never exceeds 100KB
+- [x] Reconnecting clients receive scrollback
+- [x] Clear resets buffer to empty
 
 **Open Questions**: None
 
 ---
 
 ### Question / Dialog Detection
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Detect when a Claude Code CLI session requires human attention (permission dialogs, approval prompts).
 
@@ -274,18 +274,18 @@ Env: { ...process.env, TERM: "xterm-256color" }
 - Removes control chars except newline/tab
 
 **Acceptance Criteria**:
-- [ ] Permission dialog keywords trigger question alert
-- [ ] Stuck tool calls (>8s) trigger question alert
-- [ ] Debouncing prevents alert spam (3s minimum)
-- [ ] ANSI stripping correctly extracts plain text
-- [ ] Split PTY chunks caught by delayed check
+- [x] Permission dialog keywords trigger question alert
+- [x] Stuck tool calls (>8s) trigger question alert
+- [x] Debouncing prevents alert spam (3s minimum)
+- [x] ANSI stripping correctly extracts plain text
+- [x] Split PTY chunks caught by delayed check
 
 **Open Questions**: None
 
 ---
 
 ### JSONL Event Tracking
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Parse Claude Code JSONL log files for structured agent activity tracking.
 
@@ -352,19 +352,19 @@ Env: { ...process.env, TERM: "xterm-256color" }
 - Others: all keys, values truncated to 100 chars
 
 **Acceptance Criteria**:
-- [ ] JSONL files watched and parsed incrementally
-- [ ] All event types correctly extracted
-- [ ] Agent state transitions tracked
-- [ ] Token usage accumulated accurately
-- [ ] Adaptive polling reduces resource usage
-- [ ] Tool inputs summarized without losing key info
+- [x] JSONL files watched and parsed incrementally
+- [x] All event types correctly extracted
+- [x] Agent state transitions tracked
+- [x] Token usage accumulated accurately
+- [x] Adaptive polling reduces resource usage
+- [x] Tool inputs summarized without losing key info
 
 **Open Questions**: None
 
 ---
 
 ### Idle Timeout Management
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Automatically warn and kill idle sub-agents to prevent resource waste.
 
@@ -395,18 +395,18 @@ Env: { ...process.env, TERM: "xterm-256color" }
 - Startup delay: 60 seconds
 
 **Acceptance Criteria**:
-- [ ] Warning at 5 minutes, kill at 10 minutes
-- [ ] Only sub-agents affected (not orchestrators)
-- [ ] Startup grace period prevents premature kills
-- [ ] Keep-alive resets idle timer
-- [ ] Health check pings stuck agents
+- [x] Warning at 5 minutes, kill at 10 minutes
+- [x] Only sub-agents affected (not orchestrators)
+- [x] Startup grace period prevents premature kills
+- [x] Keep-alive resets idle timer
+- [x] Health check pings stuck agents
 
 **Open Questions**: None
 
 ---
 
 ### Team Manager (server/teamManager.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Manage multi-agent teams, their configuration, and agent spawning.
 
@@ -449,7 +449,7 @@ Env: { ...process.env, TERM: "xterm-256color" }
 
 **Model Routing**:
 - Default: `{ low: "claude-haiku-4-5-20251001", medium: "claude-sonnet-4-6", high: "claude-opus-4-6" }`
-- Agent model priority: explicit model > routing table[taskComplexity] > team default
+- Model selection: `model` is a **ceiling** — `taskComplexity` selects from routing table, capped by `model`. Both provided: cheaper wins (routing can downgrade, never upgrade above ceiling). Only `model`: used directly. Only `taskComplexity`: routing applies freely. Neither: team default, then no model.
 - Configurable per-team via `updateModelRouting()`
 
 **Agent Restart**:
@@ -469,18 +469,18 @@ Env: { ...process.env, TERM: "xterm-256color" }
 - Restored as "stopped" on server restart (PTY processes don't survive)
 
 **Acceptance Criteria**:
-- [ ] Teams created with orchestrator and MCP config
-- [ ] Sub-agents spawned with correct model routing
-- [ ] Agent restart preserves configuration
-- [ ] Teams persist and restore across restarts
-- [ ] Stopped teams can be relaunched
+- [x] Teams created with orchestrator and MCP config
+- [x] Sub-agents spawned with correct model routing
+- [x] Agent restart preserves configuration
+- [x] Teams persist and restore across restarts
+- [x] Stopped teams can be relaunched
 
 **Open Questions**: None
 
 ---
 
 ### Task Board (server/taskBoard.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Shared task tracking with state machine, dependencies, and complexity-based routing.
 
@@ -526,18 +526,18 @@ teamId, createdAt, updatedAt
 **Events**: task-created, task-claimed, task-started, task-completed, task-failed, task-retried
 
 **Acceptance Criteria**:
-- [ ] All state transitions enforced
-- [ ] Dependencies block claiming until satisfied
-- [ ] Failed tasks can be retried
-- [ ] Events emitted for all transitions
-- [ ] Tasks persist via stateStore
+- [x] All state transitions enforced
+- [x] Dependencies block claiming until satisfied
+- [x] Failed tasks can be retried
+- [x] Events emitted for all transitions
+- [x] Tasks persist via stateStore
 
 **Open Questions**: None
 
 ---
 
 ### Message Queue (server/messageQueue.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Inter-agent messaging with dual delivery (instant + queued).
 
@@ -579,18 +579,18 @@ content (string), timestamp (ISO8601), read (boolean)
 **Cleanup**: `clearTeam(teamId)` removes all messages and rebuilds queue index
 
 **Acceptance Criteria**:
-- [ ] Messages queued and retrievable
-- [ ] Read status tracked per message
-- [ ] mark-all-read works correctly
-- [ ] Team cleanup removes all related messages
-- [ ] Messages persist via stateStore
+- [x] Messages queued and retrievable
+- [x] Read status tracked per message
+- [x] mark-all-read works correctly
+- [x] Team cleanup removes all related messages
+- [x] Messages persist via stateStore
 
 **Open Questions**: None
 
 ---
 
 ### Context Store (server/contextStore.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Team-scoped shared knowledge store to prevent redundant file reads.
 
@@ -635,18 +635,18 @@ content (string), timestamp (ISO8601), read (boolean)
 - `lastUpdated` refreshed on access (affects LRU priority)
 
 **Acceptance Criteria**:
-- [ ] Context stored, queried, and retrieved
-- [ ] LRU eviction works at limits
-- [ ] Token estimation reasonable for code vs prose
-- [ ] Access tracking affects eviction priority
-- [ ] Persists via stateStore
+- [x] Context stored, queried, and retrieved
+- [x] LRU eviction works at limits
+- [x] Token estimation reasonable for code vs prose
+- [x] Access tracking affects eviction priority
+- [x] Persists via stateStore
 
 **Open Questions**: None
 
 ---
 
 ### State Store (server/stateStore.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Persistent JSON storage for all server-side state.
 
@@ -701,18 +701,18 @@ content (string), timestamp (ISO8601), read (boolean)
 - Missing keys added with default values
 
 **Acceptance Criteria**:
-- [ ] State persists across server restarts
-- [ ] Dot-path get/set/delete work correctly
-- [ ] Writes debounced to 500ms
-- [ ] Corruption detected and recovered
-- [ ] File permissions are restrictive
+- [x] State persists across server restarts
+- [x] Dot-path get/set/delete work correctly
+- [x] Writes debounced to 500ms
+- [x] Corruption detected and recovered
+- [x] File permissions are restrictive
 
 **Open Questions**: None
 
 ---
 
 ### Project Memory Store (server/projectMemoryStore.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: File-based persistent memory scoped to a project working directory, surviving across teams.
 
@@ -761,18 +761,18 @@ content (string), timestamp (ISO8601), read (boolean)
 - Returns null if no active entries
 
 **Acceptance Criteria**:
-- [ ] Memory entries persist in project directory
-- [ ] Snapshot injected into new team prompts
-- [ ] Deprecated entries excluded from snapshot
-- [ ] .gitignore created automatically
-- [ ] Query searches across keys, summaries, and content
+- [x] Memory entries persist in project directory
+- [x] Snapshot injected into new team prompts
+- [x] Deprecated entries excluded from snapshot
+- [x] .gitignore created automatically
+- [x] Query searches across keys, summaries, and content
 
 **Open Questions**: None
 
 ---
 
 ### Prompt Builder (server/promptBuilder.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Generate the orchestrator prompt that drives multi-agent coordination.
 
@@ -816,17 +816,17 @@ content (string), timestamp (ISO8601), read (boolean)
 15. Shared artifacts path
 
 **Acceptance Criteria**:
-- [ ] Orchestrator prompt includes all MCP tool documentation
-- [ ] Sub-agent template includes correct session IDs
-- [ ] Prior knowledge section included when available
-- [ ] Prompt emphasizes using MCP tools, not built-in tools
+- [x] Orchestrator prompt includes all MCP tool documentation
+- [x] Sub-agent template includes correct session IDs
+- [x] Prior knowledge section included when available
+- [x] Prompt emphasizes using MCP tools, not built-in tools
 
 **Open Questions**: None
 
 ---
 
 ### Template Store (server/templateStore.js)
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: CRUD for team role configuration templates.
 
@@ -855,16 +855,16 @@ content (string), timestamp (ISO8601), read (boolean)
 **Storage**: Array at `stateStore.get("templates")`
 
 **Acceptance Criteria**:
-- [ ] Templates can be created, listed, and deleted
-- [ ] Legacy migration runs once
-- [ ] Templates persist via stateStore
+- [x] Templates can be created, listed, and deleted
+- [x] Legacy migration runs once
+- [x] Templates persist via stateStore
 
 **Open Questions**: None
 
 ---
 
 ### Folder Browse via osascript
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Native macOS Finder dialog for selecting working directories.
 
@@ -884,17 +884,17 @@ content (string), timestamp (ISO8601), read (boolean)
 - Error/cancel returns `{ cancelled: true }`
 
 **Acceptance Criteria**:
-- [ ] Finder dialog opens on macOS
-- [ ] Selected path returned as POSIX path
-- [ ] Cancel handled gracefully
-- [ ] Timeout prevents hanging
+- [x] Finder dialog opens on macOS
+- [x] Selected path returned as POSIX path
+- [x] Cancel handled gracefully
+- [x] Timeout prevents hanging
 
 **Open Questions**: None
 
 ---
 
 ### WebSocket Connection Handling
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Manage WebSocket connections for real-time terminal I/O and event streaming.
 
@@ -926,10 +926,10 @@ content (string), timestamp (ISO8601), read (boolean)
 - Remove from attached session's clients
 
 **Acceptance Criteria**:
-- [ ] Origin validation blocks cross-origin connections
-- [ ] Attach sends scrollback and current state
-- [ ] Resize buffered when no session attached
-- [ ] Raw input forwarded to PTY
-- [ ] Close cleans up client references
+- [x] Origin validation blocks cross-origin connections
+- [x] Attach sends scrollback and current state
+- [x] Resize buffered when no session attached
+- [x] Raw input forwarded to PTY
+- [x] Close cleans up client references
 
 **Open Questions**: None

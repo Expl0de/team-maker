@@ -1,6 +1,6 @@
 # System Overview
 
-> **Spec Status**: [ ] Draft
+> **Spec Status**: [x] Done
 > **Last Updated**: 2026-03-26
 
 ## Purpose
@@ -59,7 +59,7 @@ This document covers the high-level system purpose, target users, key concepts, 
 ## Components / Features
 
 ### Web-Based Terminal Management
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Provide a browser-based interface for managing multiple Claude Code CLI sessions.
 
@@ -78,17 +78,17 @@ This document covers the high-level system purpose, target users, key concepts, 
 - Max WebSocket payload: 64KB
 
 **Acceptance Criteria**:
-- [ ] User can create a session with optional working directory and model
-- [ ] Terminal renders PTY output in real-time
-- [ ] Session scrollback is preserved and sent to reconnecting clients
-- [ ] Session can be destroyed, killing the PTY process
+- [x] User can create a session with optional working directory and model
+- [x] Terminal renders PTY output in real-time
+- [x] Session scrollback is preserved and sent to reconnecting clients
+- [x] Session can be destroyed, killing the PTY process
 
 **Open Questions**: None
 
 ---
 
 ### Multi-Agent Team Orchestration
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Enable coordinated multi-agent workflows for complex software engineering tasks.
 
@@ -110,18 +110,18 @@ This document covers the high-level system purpose, target users, key concepts, 
 - Idle sub-agents auto-killed after 10 minutes
 
 **Acceptance Criteria**:
-- [ ] User can create a team with a task prompt and agent roles
-- [ ] Orchestrator receives the prompt and waits for user go-ahead
-- [ ] Sub-agents can be spawned, assigned tasks, and communicate
-- [ ] Task board tracks work through completion
-- [ ] Teams can be stopped and relaunched
+- [x] User can create a team with a task prompt and agent roles
+- [x] Orchestrator receives the prompt and waits for user go-ahead
+- [x] Sub-agents can be spawned, assigned tasks, and communicate
+- [x] Task board tracks work through completion
+- [x] Teams can be stopped and relaunched
 
 **Open Questions**: None
 
 ---
 
 ### MCP Server Integration
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Extend Claude Code with team management tools via the Model Context Protocol.
 
@@ -139,16 +139,16 @@ This document covers the high-level system purpose, target users, key concepts, 
 - Tools return formatted text responses
 
 **Acceptance Criteria**:
-- [ ] All 17 MCP tools function correctly
-- [ ] Tool calls are properly proxied to the HTTP server
-- [ ] Error responses are propagated back to the calling agent
+- [x] All 17 MCP tools function correctly
+- [x] Tool calls are properly proxied to the HTTP server
+- [x] Error responses are propagated back to the calling agent
 
 **Open Questions**: None
 
 ---
 
 ### Persistent State & Project Memory
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Preserve team state across server restarts and share knowledge across teams.
 
@@ -167,17 +167,17 @@ This document covers the high-level system purpose, target users, key concepts, 
 - Corruption recovery with automatic backups
 
 **Acceptance Criteria**:
-- [ ] Server restart preserves team definitions (teams restored as "stopped")
-- [ ] Messages, tasks, and context are restored from state
-- [ ] Project memory persists across teams and appears in new team prompts
-- [ ] Corrupted state file triggers backup + fresh start
+- [x] Server restart preserves team definitions (teams restored as "stopped")
+- [x] Messages, tasks, and context are restored from state
+- [x] Project memory persists across teams and appears in new team prompts
+- [x] Corrupted state file triggers backup + fresh start
 
 **Open Questions**: None
 
 ---
 
 ### Real-Time Event Monitoring
-> Status: [ ] Pending
+> Status: [x] Done
 
 **Purpose**: Provide visibility into agent activity via structured events.
 
@@ -198,9 +198,9 @@ This document covers the high-level system purpose, target users, key concepts, 
 - Token usage aggregated from JSONL usage events
 
 **Acceptance Criteria**:
-- [ ] Agent states update in real-time in the UI
-- [ ] Token usage is tracked and displayed per agent
-- [ ] Permission dialogs trigger visual + audio alerts
-- [ ] Events panel shows filterable structured event log
+- [x] Agent states update in real-time in the UI
+- [x] Token usage is tracked and displayed per agent
+- [x] Permission dialogs trigger visual + audio alerts
+- [x] Events panel shows filterable structured event log
 
 **Open Questions**: None
