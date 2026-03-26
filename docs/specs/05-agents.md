@@ -9,7 +9,7 @@ Define the multi-agent orchestration system: MCP server architecture, all MCP to
 
 ## Scope
 
-Covers the agent orchestration layer built on top of the core session/team infrastructure. For backend implementation details, see [03-backend.md](03-backend.md). For API contracts, see [02-contracts.md](02-contracts.md).
+Covers the agent orchestration layer built on top of the core session/team infrastructure. For backend implementation details, see [03-backend.md](03-backend.md). For the authoritative parameter schemas and REST endpoints for each MCP tool, see the MCP Tool Schemas section in [02-contracts.md](02-contracts.md).
 
 ---
 

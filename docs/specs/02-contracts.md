@@ -1036,6 +1036,8 @@ Raw string/binary PTY output. Not JSON-wrapped.
 
 All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Parameters use Zod schemas (required by @modelcontextprotocol/sdk). Tools communicate with the Team Maker HTTP server via REST API calls to `http://localhost:{PORT}`.
 
+> For behavioral documentation, usage patterns, acceptance criteria, and agent orchestration flows for each tool, see [05-agents.md](05-agents.md).
+
 ### spawn_agent
 > Status: [ ] Pending
 
