@@ -2390,6 +2390,52 @@ header h1 {
   border-radius: 6px;
 }
 
+/* Git Diff Toggle */
+
+.diff-toggle-btn {
+  background: none;
+  border: 1px solid #45475a;
+  color: #cdd6f4;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.diff-toggle-btn:hover {
+  background: #313244;
+}
+
+.diff-toggle-btn.diff-toggle-on {
+  border-color: #cba6f7;
+  color: #cba6f7;
+}
+
+.diff-format-selector {
+  display: flex;
+  gap: 4px;
+}
+
+.diff-format-btn {
+  background: none;
+  border: 1px solid #45475a;
+  color: #6c7086;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.diff-format-btn:hover {
+  background: #313244;
+}
+
+.diff-format-btn.diff-format-active {
+  border-color: #cba6f7;
+  color: #cba6f7;
+}
+
 /* ========== Team Panel (Agent Flow Graph) ========== */
 
 #team-panel {

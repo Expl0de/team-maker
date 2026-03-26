@@ -574,6 +574,48 @@ app.get("/api/teams/:teamId/files/read", async (req, res) => {
   }
 });
 
+// Get git diff for a file (with path traversal protection)
+app.get("/api/git-diff", async (req, res) => {
+  const { file, cwd } = req.query;
+  if (!file || !cwd) {
+    return res.status(400).json({ error: "file and cwd parameters required" });
+  }
+
+  const resolvedFile = resolve(file);
+  const resolvedCwd = resolve(cwd);
+
+  // Basic path check before resolving symlinks
+  if (!resolvedFile.startsWith(resolvedCwd + "/") && resolvedFile !== resolvedCwd) {
+    return res.status(403).json({ error: "Access denied: path outside cwd" });
+  }
+
+  let realFile, realCwd;
+  try {
+    [realFile, realCwd] = await Promise.all([realpath(resolvedFile), realpath(resolvedCwd)]);
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      return res.status(404).json({ error: "File not found" });
+    }
+    return res.status(500).json({ error: "Failed to resolve path" });
+  }
+
+  // Post-symlink-resolution traversal check
+  if (!realFile.startsWith(realCwd + "/") && realFile !== realCwd) {
+    return res.status(403).json({ error: "Access denied: path outside cwd" });
+  }
+
+  execFile("git", ["diff", "HEAD", "--", realFile], { cwd: realCwd }, (err, stdout) => {
+    if (err) {
+      if (err.code === "ENOENT") {
+        return res.status(500).json({ error: "git is not available" });
+      }
+      return res.status(500).json({ error: "git command failed" });
+    }
+    const diff = stdout || "";
+    res.json({ diff, hasDiff: diff.length > 0 });
+  });
+});
+
 // --- Task Board API ---
 
 // Create a task

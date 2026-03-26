@@ -700,6 +700,89 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 
 ---
 
+### Files Panel — Git Diff Toggle
+> Status: [✓] Validated
+
+**Purpose**: Allow users to toggle between the current file content and its git diff when an agent has edited a file, making it easy to inspect exactly what changed without leaving the browser.
+
+**Responsibilities**:
+- When `viewFile()` is invoked, concurrently fetch the git diff via `GET /api/git-diff`
+- If the file has changes (`hasDiff: true`), render a **"View Diff" toggle** (On/Off) in the file viewer header
+- When the toggle is **On**: show diff view and reveal the Format selector ("Unified" | "Split")
+- When the toggle is **Off** (default): show file content only; Format selector is hidden
+- Apply Catppuccin Mocha colors to all diff-specific elements
+- Omit the toggle entirely when the file has no changes (no visual noise added)
+
+**Interfaces**:
+- Input:
+  - `GET /api/git-diff?file=<absolutePath>&cwd=<teamCwd>` → `{ diff: string, hasDiff: boolean }`
+  - User clicks "View Diff" toggle (flips On/Off)
+  - User clicks Format selector ("Unified" | "Split") — only accessible while toggle is On
+- Output:
+  - "View Diff" toggle button rendered inside `.file-viewer-header` (only when `hasDiff: true`)
+  - Format selector rendered inside `.file-viewer-header` (visible only when toggle is On)
+  - `.file-viewer-content` re-rendered with diff or file content on toggle flip
+- State (per open file, not persisted):
+  - `diffToggleOn` — `false` (default) or `true`
+  - `currentDiffFormat` — `"unified"` (default) or `"split"`
+  - `cachedDiffText` — raw diff string returned by the API (cached to avoid re-fetching on format/toggle changes)
+
+**Behavior / Rules**:
+
+**"View Diff" Toggle**:
+- Single On/Off button labeled "View Diff" in `.file-viewer-header`, rendered only when `hasDiff: true`
+- Default state on file open: **Off** (file content shown)
+- Visual distinction between states: Off = default border style; On = Catppuccin Mauve accent (`#cba6f7`) border/text
+- Toggle is ephemeral — not preserved when the user navigates Back or switches files
+- Flipping Off re-renders file content from already-fetched data (no new API call)
+- Flipping On renders the diff using `cachedDiffText` (no new API call if diff already fetched)
+
+**Unified Diff Format**:
+- Added lines (`+`): Catppuccin Green text (`#a6e3a1`) on a green-tinted row background (`rgba(166,227,161,0.10)`)
+- Removed lines (`-`): Catppuccin Red text (`#f38ba8`) on a red-tinted row background (`rgba(243,139,168,0.10)`)
+- Hunk header lines (`@@`): Catppuccin Blue text (`#89b4fa`), dimmed background (`rgba(137,180,250,0.08)`)
+- Context lines (` `): default text color (`#cdd6f4`)
+- Line numbers (old | new) displayed in the gutter; absent lines shown as empty gutter cells
+- Rendered in a `<pre>` block matching existing file-line styling
+
+**Split Diff Format**:
+- Two equal-width columns in a side-by-side layout: **Before** (left) and **After** (right)
+- Column header labels "Before" / "After" in Catppuccin Subtext color (`#6c7086`)
+- Removed lines highlighted in the left column (red tint); added lines in the right column (green tint)
+- Rows with no counterpart (net insertions or deletions) show an empty, slightly dimmed cell on the absent side
+- Each column scrolls independently (synchronized scrolling is a nice-to-have, not required)
+
+**Fetching**:
+- `GET /api/git-diff` called concurrently with the file read when `viewFile()` is invoked
+- `cwd` is taken from the active team's working directory (available in team state)
+- If the diff request fails for any reason, silently skip the toggle — file view renders normally
+- Diff text cached in `cachedDiffText`; format changes and toggle flips re-render from the cache (no new API call)
+
+**Format Selector**:
+- Two small buttons ("Unified" | "Split") visible inside `.file-viewer-header` only when the "View Diff" toggle is **On**
+- The active format button is visually distinguished (Catppuccin Mauve accent `#cba6f7`)
+- Changing format immediately re-renders from `cachedDiffText` — no new network request
+
+**Acceptance Criteria**:
+- [x] `GET /api/git-diff?file=<path>&cwd=<cwd>` is called when a file is opened in the Files Tab
+- [x] "View Diff" toggle button appears in the file viewer header when `hasDiff: true`
+- [x] No toggle is rendered when the file has no git diff (`hasDiff: false`)
+- [x] Toggle defaults to Off (file content shown) on file open
+- [x] Clicking the toggle turns it On and switches `.file-viewer-content` to diff view
+- [x] Clicking the toggle again turns it Off and restores file content (no re-fetch)
+- [x] Toggle On state is visually distinct from Off state (Mauve accent)
+- [x] Format selector ("Unified" | "Split") appears only when toggle is On
+- [x] Unified view: added lines are green, removed lines are red, hunk headers are blue
+- [x] Split view: old content renders in the left column, new content in the right column
+- [x] Switching formats re-renders from the cached diff (no additional API call)
+- [x] A diff API fetch failure silently omits the toggle (file view renders normally)
+- [x] Back button still navigates back to the file list (existing behavior preserved)
+- [x] All diff UI elements (toggle, format selector, diff lines) use Catppuccin Mocha colors
+
+**Open Questions**: None
+
+---
+
 ### Catppuccin Mocha Theme
 > Status: [x] Done
 

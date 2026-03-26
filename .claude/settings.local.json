@@ -5,7 +5,10 @@
       "mcp__team-maker__get_tasks",
       "mcp__team-maker__complete_task",
       "mcp__team-maker__claim_task",
-      "mcp__team-maker__send_message"
+      "mcp__team-maker__send_message",
+      "mcp__team-maker__query_context",
+      "mcp__team-maker__store_project_memory",
+      "Bash(git add:*)"
     ]
   }
 }

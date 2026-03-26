@@ -5,3 +5,6 @@ node_modules/
 .agents/
 .claude/skills/
 skills-lock.json
+
+# Team Maker: ignore session artifact dirs
+.team-maker/*/

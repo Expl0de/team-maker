@@ -730,6 +730,31 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 
 ---
 
+#### GET /api/git-diff — Get Git Diff for File
+> Status: [✓] Validated
+
+**Query Params**:
+- `file` (required) — absolute path to the file
+- `cwd` (required) — working directory (must be inside a git repository)
+
+**Response** (200):
+```json
+{
+  "diff": "string (unified diff text from `git diff HEAD -- <file>`, empty string if no changes)",
+  "hasDiff": "boolean"
+}
+```
+
+**Errors**: 400 (missing `file` or `cwd`), 403 (path outside `cwd` / symlink traversal), 404 (file not found in working tree), 500 (git command failed or `cwd` is not a git repository)
+
+**Behavior**:
+- Executes `git diff HEAD -- <file>` with `cwd` as the working directory
+- Path security: resolves symlinks and validates that `file` is within `cwd` (same model as `GET /api/teams/:teamId/files/read`)
+- Returns `hasDiff: false` and `diff: ""` when the file is untracked or has no changes relative to HEAD
+- Returns 500 when `cwd` is not inside a git repository or when git is unavailable on the host
+
+---
+
 ### Templates & Other
 
 #### GET /api/templates — List Templates

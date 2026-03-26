@@ -22,6 +22,13 @@ const teamContexts = new Map(); // teamId -> entry[]
 // Track handled idle events to avoid duplicate toasts from multiple WebSocket connections
 const handledIdleEvents = new Set();
 
+// Files panel — git diff toggle state (per open file, reset on each viewFile() call)
+let cachedDiffText = null;
+let cachedFileContent = null;
+let cachedFileIsMarkdown = false;
+let diffToggleOn = false;
+let currentDiffFormat = "unified";
+
 // P1-21: Persistent tab selection helpers
 function getActiveTabName() {
   if (teamTabActive) return "team";
@@ -2061,41 +2068,241 @@ async function viewFile(filePath) {
   const panel = document.getElementById("files-panel-content");
   panel.innerHTML = '<div class="files-empty">Loading file...</div>';
 
+  // Reset diff state for this file open
+  cachedDiffText = null;
+  cachedFileContent = null;
+  cachedFileIsMarkdown = false;
+  diffToggleOn = false;
+  currentDiffFormat = "unified";
+
+  const team = teams.get(activeTeamId);
+  const teamCwd = team?.cwd || null;
+
   try {
-    const res = await fetchWithTimeout(`/api/teams/${activeTeamId}/files/read?path=${encodeURIComponent(filePath)}`);
-    if (!res.ok) {
-      const err = await res.json();
+    // Concurrently fetch file content and git diff
+    const [fileRes, diffData] = await Promise.all([
+      fetchWithTimeout(`/api/teams/${activeTeamId}/files/read?path=${encodeURIComponent(filePath)}`),
+      teamCwd
+        ? fetchWithTimeout(`/api/git-diff?file=${encodeURIComponent(filePath)}&cwd=${encodeURIComponent(teamCwd)}`)
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    if (!fileRes.ok) {
+      const err = await fileRes.json();
       panel.innerHTML = `<div class="files-empty">${escapeHtml(err.error || "Failed to read file")}</div>`;
       return;
     }
-    const data = await res.json();
+    const data = await fileRes.json();
+
+    if (diffData?.hasDiff) {
+      cachedDiffText = diffData.diff;
+    }
+
     const filename = filePath.split("/").pop();
     const isMarkdown = /\.md$/i.test(filename);
+    cachedFileContent = data.content;
+    cachedFileIsMarkdown = isMarkdown;
 
     let contentHtml;
     if (isMarkdown) {
       const rendered = DOMPurify.sanitize(marked.parse(data.content));
       contentHtml = `<div class="file-viewer-markdown">${rendered}</div>`;
     } else {
-      const lines = data.content.split("\n");
-      const lineHtml = lines.map((line, i) => {
-        const num = i + 1;
-        const escaped = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        return `<div class="file-line"><span class="file-line-number">${num}</span><span class="file-line-content">${escaped}</span></div>`;
-      }).join("");
-      contentHtml = `<pre>${lineHtml}</pre>`;
+      contentHtml = renderFileLines(data.content);
     }
+
+    const diffControlsHtml = cachedDiffText !== null
+      ? `<button class="diff-toggle-btn" id="diff-toggle-btn" onclick="toggleDiffView()">View Diff</button>
+         <div class="diff-format-selector" id="diff-format-selector" style="display:none">
+           <button class="diff-format-btn diff-format-active" id="fmt-unified" onclick="setDiffFormat('unified')">Unified</button>
+           <button class="diff-format-btn" id="fmt-split" onclick="setDiffFormat('split')">Split</button>
+         </div>`
+      : "";
 
     panel.innerHTML = `<div class="file-viewer">
       <div class="file-viewer-header">
         <button class="file-viewer-back" onclick="loadTeamFiles('${activeTeamId}')">← Back</button>
         <span class="file-viewer-filename" title="${escapeHtml(filePath)}">${escapeHtml(filename)}</span>
+        ${diffControlsHtml}
       </div>
       <div class="file-viewer-content">${contentHtml}</div>
     </div>`;
   } catch {
     panel.innerHTML = '<div class="files-empty">Failed to load file</div>';
   }
+}
+
+function renderFileLines(content) {
+  const lines = content.split("\n");
+  const lineHtml = lines.map((line, i) => {
+    const num = i + 1;
+    const escaped = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<div class="file-line"><span class="file-line-number">${num}</span><span class="file-line-content">${escaped}</span></div>`;
+  }).join("");
+  return `<pre>${lineHtml}</pre>`;
+}
+
+function toggleDiffView() {
+  diffToggleOn = !diffToggleOn;
+  const btn = document.getElementById("diff-toggle-btn");
+  const fmtSelector = document.getElementById("diff-format-selector");
+  if (!btn) return;
+
+  if (diffToggleOn) {
+    btn.classList.add("diff-toggle-on");
+    if (fmtSelector) fmtSelector.style.display = "";
+    renderDiffContent();
+  } else {
+    btn.classList.remove("diff-toggle-on");
+    if (fmtSelector) fmtSelector.style.display = "none";
+    // Restore file content from cache — no new API call
+    const contentEl = document.querySelector("#files-panel-content .file-viewer-content");
+    if (contentEl && cachedFileContent !== null) {
+      if (cachedFileIsMarkdown) {
+        const rendered = DOMPurify.sanitize(marked.parse(cachedFileContent));
+        contentEl.innerHTML = `<div class="file-viewer-markdown">${rendered}</div>`;
+      } else {
+        contentEl.innerHTML = renderFileLines(cachedFileContent);
+      }
+    }
+  }
+}
+
+function setDiffFormat(format) {
+  currentDiffFormat = format;
+  const btnUnified = document.getElementById("fmt-unified");
+  const btnSplit = document.getElementById("fmt-split");
+  if (btnUnified) btnUnified.classList.toggle("diff-format-active", format === "unified");
+  if (btnSplit) btnSplit.classList.toggle("diff-format-active", format === "split");
+  renderDiffContent();
+}
+
+function renderDiffContent() {
+  const contentEl = document.querySelector("#files-panel-content .file-viewer-content");
+  if (!contentEl || !cachedDiffText) return;
+  if (currentDiffFormat === "split") {
+    contentEl.innerHTML = renderSplitDiff(cachedDiffText);
+  } else {
+    contentEl.innerHTML = renderUnifiedDiff(cachedDiffText);
+  }
+}
+
+function renderUnifiedDiff(diffText) {
+  const lines = diffText.split("\n");
+  let oldLine = 0;
+  let newLine = 0;
+
+  const rowsHtml = lines.map(line => {
+    let oldNum = "";
+    let newNum = "";
+    let rowStyle = "";
+    let textColor = "";
+    let escapedLine = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    if (line.startsWith("@@")) {
+      // Parse hunk header: @@ -a,b +c,d @@
+      const m = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (m) {
+        oldLine = parseInt(m[1], 10);
+        newLine = parseInt(m[2], 10);
+      }
+      rowStyle = `background:rgba(137,180,250,0.08)`;
+      textColor = `color:#89b4fa`;
+    } else if (line.startsWith("+") && !line.startsWith("+++")) {
+      newNum = newLine++;
+      rowStyle = `background:rgba(166,227,161,0.10)`;
+      textColor = `color:#a6e3a1`;
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      oldNum = oldLine++;
+      rowStyle = `background:rgba(243,139,168,0.10)`;
+      textColor = `color:#f38ba8`;
+    } else if (line.startsWith(" ")) {
+      oldNum = oldLine++;
+      newNum = newLine++;
+      textColor = `color:#cdd6f4`;
+    } else {
+      // file header lines (---, +++, diff --git, index, etc.)
+      textColor = `color:#6c7086`;
+    }
+
+    return `<div class="diff-line" style="${rowStyle}">` +
+      `<span class="diff-gutter-old" style="color:#6c7086;min-width:3em;text-align:right;padding-right:4px;user-select:none">${oldNum}</span>` +
+      `<span class="diff-gutter-new" style="color:#6c7086;min-width:3em;text-align:right;padding-right:8px;user-select:none">${newNum}</span>` +
+      `<span class="diff-line-content" style="${textColor};white-space:pre">${escapedLine}</span>` +
+      `</div>`;
+  }).join("");
+
+  return `<pre style="margin:0;font-family:inherit">${rowsHtml}</pre>`;
+}
+
+function renderSplitDiff(diffText) {
+  const lines = diffText.split("\n");
+  let oldLine = 0;
+  let newLine = 0;
+
+  // Parse into before/after row pairs
+  const rows = [];
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      const m = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (m) {
+        oldLine = parseInt(m[1], 10);
+        newLine = parseInt(m[2], 10);
+      }
+      const escaped = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      rows.push({ type: "hunk", left: escaped, right: escaped });
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      const escaped = line.slice(1).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      rows.push({ type: "del", leftNum: oldLine++, left: escaped, rightNum: "", right: null });
+    } else if (line.startsWith("+") && !line.startsWith("+++")) {
+      const escaped = line.slice(1).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      // Pair with a preceding unpaired del if possible
+      const prev = rows[rows.length - 1];
+      if (prev && prev.type === "del" && prev.right === null) {
+        prev.right = escaped;
+        prev.rightNum = newLine++;
+        prev.type = "mod";
+      } else {
+        rows.push({ type: "add", leftNum: "", left: null, rightNum: newLine++, right: escaped });
+      }
+    } else if (line.startsWith(" ")) {
+      const escaped = line.slice(1).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      rows.push({ type: "ctx", leftNum: oldLine++, left: escaped, rightNum: newLine++, right: escaped });
+    }
+    // Skip file header lines (---, +++, diff --git, index, etc.)
+  }
+
+  const cellStyle = "width:50%;vertical-align:top;padding:0 4px;overflow-x:auto";
+  const rowsHtml = rows.map(row => {
+    if (row.type === "hunk") {
+      const hunkStyle = `background:rgba(137,180,250,0.08);color:#89b4fa`;
+      return `<tr><td colspan="4" style="${hunkStyle};padding:0 4px;white-space:pre">${row.left}</td></tr>`;
+    }
+    const leftBg = (row.type === "del" || row.type === "mod") ? "background:rgba(243,139,168,0.10)" : "";
+    const rightBg = (row.type === "add" || row.type === "mod") ? "background:rgba(166,227,161,0.10)" : "";
+    const leftText = (row.type === "del" || row.type === "mod") ? "color:#f38ba8" : "color:#cdd6f4";
+    const rightText = (row.type === "add" || row.type === "mod") ? "color:#a6e3a1" : "color:#cdd6f4";
+    const leftContent = row.left !== null ? `<span style="${leftText};white-space:pre">${row.left}</span>` : `<span style="opacity:0.3">···</span>`;
+    const rightContent = row.right !== null ? `<span style="${rightText};white-space:pre">${row.right}</span>` : `<span style="opacity:0.3">···</span>`;
+    return `<tr>` +
+      `<td style="color:#6c7086;min-width:2.5em;text-align:right;padding-right:4px;user-select:none;${leftBg}">${row.leftNum}</td>` +
+      `<td style="${cellStyle};${leftBg}">${leftContent}</td>` +
+      `<td style="color:#6c7086;min-width:2.5em;text-align:right;padding-right:4px;user-select:none;${rightBg}">${row.rightNum}</td>` +
+      `<td style="${cellStyle};${rightBg}">${rightContent}</td>` +
+      `</tr>`;
+  }).join("");
+
+  return `<table style="width:100%;border-collapse:collapse;font-family:inherit">
+    <thead>
+      <tr>
+        <th colspan="2" style="color:#6c7086;font-weight:normal;text-align:left;padding:4px;border-bottom:1px solid #313244">Before</th>
+        <th colspan="2" style="color:#6c7086;font-weight:normal;text-align:left;padding:4px;border-bottom:1px solid #313244">After</th>
+      </tr>
+    </thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>`;
 }
 
 // --- Agent idle events (AP5-A) ---
@@ -2929,6 +3136,7 @@ async function createNewTeam() {
     const team = {
       id: data.team.id,
       name: data.team.name,
+      cwd: data.team.cwd || null,
       agentIds: data.team.agentIds,
       modelRouting: data.team.modelRouting || null,
     };
@@ -3132,6 +3340,7 @@ function importTeam() {
       const team = {
         id: result.team.id,
         name: result.team.name,
+        cwd: result.team.cwd || null,
         agentIds: result.team.agentIds,
         modelRouting: result.team.modelRouting || null,
         status: result.team.status || "running",
@@ -3161,6 +3370,7 @@ async function loadExistingTeams() {
       const team = {
         id: teamData.id,
         name: teamData.name,
+        cwd: teamData.cwd || null,
         agentIds: teamData.agentIds,
         modelRouting: teamData.modelRouting || null,
         status: teamData.status || "running",
