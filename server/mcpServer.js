@@ -387,5 +387,120 @@ server.tool(
   }
 );
 
+// --- Project Memory MCP Tools ---
+
+server.tool(
+  "store_project_memory",
+  "Write a finding to project-level memory. This persists across all teams on this project — use it after significant analysis (architecture, dependency maps, key decisions) so future teams don't repeat the work. Do NOT store secrets — project memory may be committed to git.",
+  {
+    key: z.string().describe("A descriptive key for this memory entry (e.g., 'arch-overview', 'key-dependencies', 'auth-flow')"),
+    content: z.string().describe("The content to store — analysis results, architecture notes, key decisions, etc."),
+    summary: z.string().optional().describe("A one-line summary (shown in list_project_memory and injected into future team prompts)"),
+  },
+  async ({ key, content, summary }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/project-memory`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, content, summary }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      return {
+        content: [{ type: "text", text: `Project memory stored: "${key}". Future teams on this project will see this in their context.` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "query_project_memory",
+  "Keyword search across project-level memory (keys, summaries, content). Use this BEFORE reading project files to check if a previous team already analyzed them.",
+  {
+    query: z.string().describe("Keywords to search for in project memory"),
+  },
+  async ({ query }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/project-memory/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      if (data.results.length === 0) {
+        return { content: [{ type: "text", text: `No project memory found matching "${query}". You may need to analyze the files yourself.` }] };
+      }
+      const formatted = data.results.map((r) =>
+        `### ${r.key} (score: ${r.score}, stored by ${r.storedBy})\n${r.content}`
+      ).join("\n\n---\n\n");
+      return {
+        content: [{ type: "text", text: `Found ${data.results.length} result(s):\n\n${formatted}` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "list_project_memory",
+  "List all keys and summaries in project-level memory. Use this BEFORE reading project files to discover what previous teams have already documented.",
+  {},
+  async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/project-memory`);
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      if (data.entries.length === 0) {
+        return { content: [{ type: "text", text: "No project memory stored yet. Use store_project_memory() after analyzing the codebase." }] };
+      }
+      const formatted = data.entries.map((e) =>
+        `- **${e.key}** (by ${e.storedBy}, updated ${e.lastUpdated})\n  ${e.summary || "(no summary)"}`
+      ).join("\n");
+      return {
+        content: [{ type: "text", text: `${data.entries.length} project memory entries:\n\n${formatted}\n\nUse query_project_memory("keyword") to retrieve full content.` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "deprecate_project_memory",
+  "Soft-mark a project memory entry as stale. It will be excluded from future team prompts but remains searchable via query_project_memory. Use this when you discover an entry no longer reflects reality.",
+  {
+    key: z.string().describe("The key of the project memory entry to deprecate"),
+    reason: z.string().optional().describe("Why this entry is stale (e.g., 'dependencies updated in v2 refactor')"),
+  },
+  async ({ key, reason }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/project-memory/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      return {
+        content: [{ type: "text", text: `Project memory entry "${key}" marked as deprecated. It will no longer appear in future team prompts.` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

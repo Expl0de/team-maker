@@ -17,7 +17,7 @@ export const EXTRA_ROLES = [
 /**
  * Build the full orchestrator prompt for Agent 0.
  */
-export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, roles, orchestratorSessionId }) {
+export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, roles, orchestratorSessionId, projectMemorySnapshot }) {
   const roleBlocks = roles.map((role, i) => {
     const num = i + 1;
     return `**Agent ${num} (${role.title}): ${role.responsibility}**
@@ -31,7 +31,19 @@ export function buildOrchestratorPrompt({ teamName, sessionId, cwd, taskPrompt, 
     return `- Agent ${num}: name="${role.title}", use the sub-agent prompt template below with N=${num}, Role="${role.title}", Responsibility="${role.responsibility}"`;
   }).join("\n");
 
-  return `## Your Identity
+  const priorKnowledgeSection = projectMemorySnapshot
+    ? `## Prior Project Knowledge
+
+Previous teams on this project have documented the following. Use \`list_project_memory()\` to explore and \`query_project_memory(query)\` to search before re-analyzing files.
+
+${projectMemorySnapshot}
+
+---
+
+`
+    : "";
+
+  return `${priorKnowledgeSection}## Your Identity
 You are **Agent 0 — The Orchestrator** for team "${teamName}". You manage the team, coordinate all agents, and serve as the sole communication interface with the user.
 
 > **Role Acknowledgment**: "I am Agent 0 - The Orchestrator responsible for Team Management & User Communication"
@@ -83,6 +95,14 @@ You have these MCP tools to manage your team. They appear as \`mcp__team-maker__
 - \`mcp__team-maker__list_context()\` — list all shared context entries (keys + summaries). Use to discover what the team already knows.
 
 **Context sharing strategy**: After the first agent (typically the Architect) analyzes the codebase, have them \`store_context()\` their findings (project structure, key dependencies, architecture notes). This prevents every subsequent agent from re-reading the same files — saving significant tokens.
+
+### Project Memory (persists across all teams on this project)
+- \`mcp__team-maker__list_project_memory()\` — list all keys + summaries from previous teams on this project. **Check this first before spawning the Architect.**
+- \`mcp__team-maker__query_project_memory(query)\` — keyword search across project memory. Returns full content of matching entries.
+- \`mcp__team-maker__store_project_memory(key, content, summary?)\` — write a finding to project-level memory so future teams benefit. Use after significant analysis. Do NOT store secrets.
+- \`mcp__team-maker__deprecate_project_memory(key, reason?)\` — mark an entry as stale when you discover it no longer reflects reality. It will be excluded from future team prompts but remains searchable.
+
+**Project memory strategy**: Before spawning the Architect, call \`list_project_memory()\`. If prior knowledge exists, include it in the Architect's prompt so they can skip re-reading already-documented files. After each team completes significant findings, instruct the Architect (or relevant agent) to \`store_project_memory()\` for future teams. If an entry is outdated, use \`deprecate_project_memory()\` before writing the replacement.
 
 ---
 
@@ -175,6 +195,14 @@ Use \`list_agents()\` to see all agents and find your own session ID. You need t
 
 **IMPORTANT**: Before reading project files, ALWAYS check \`list_context()\` first. If another agent already analyzed the files you need, use \`query_context()\` to get their findings instead of re-reading. After you complete analysis or read important files, use \`store_context()\` to share what you learned.
 
+### Project Memory (persists across all teams on this project)
+- \`mcp__team-maker__list_project_memory()\` — list findings from previous teams on this project. **Check before reading project files.**
+- \`mcp__team-maker__query_project_memory(query)\` — keyword search across project memory. Returns full content.
+- \`mcp__team-maker__store_project_memory(key, content, summary?)\` — write your findings so future teams benefit. Do NOT store secrets — project memory may be committed to git.
+- \`mcp__team-maker__deprecate_project_memory(key, reason?)\` — mark an entry as stale when you discover it no longer reflects reality. It will be excluded from future team prompts but remains searchable.
+
+**Before reading project files, call \`list_project_memory()\` to check for prior analysis. Reuse it before re-analyzing. When you complete significant analysis (architecture, dependency maps, key decisions), use \`store_project_memory()\` so future teams benefit. If an existing entry is outdated, use \`deprecate_project_memory()\` before writing the replacement.**
+
 ## How You Receive Work
 The orchestrator creates tasks on the task board and assigns them to you. Messages arrive via \`send_message\` — you do NOT need to poll.
 
@@ -233,8 +261,9 @@ ${taskPrompt}
 **Do NOT immediately start creating tasks, spawning agents, or doing any work.** Instead:
 
 1. **Summarize** what you understand about the user's request
-2. **Present** your proposed plan (roles you'd spawn, high-level task breakdown)
-3. **Wait** for the user to explicitly tell you to proceed (e.g., "go ahead", "start", "looks good")
+2. **If Prior Project Knowledge exists** (see top of this prompt), tell the user: "I found prior knowledge from previous teams on this project:" and list each key with its summary. This lets the user know the team will build on prior work rather than starting from scratch.
+3. **Present** your proposed plan (roles you'd spawn, high-level task breakdown, and which prior knowledge entries are relevant)
+4. **Wait** for the user to explicitly tell you to proceed (e.g., "go ahead", "start", "looks good")
 
 Only after receiving the user's go-ahead should you begin Step 2 (creating tasks) and Step 3 (spawning agents).
 

@@ -1967,6 +1967,29 @@ header h1 {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.context-entry-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.context-entry-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.context-entry-toggle {
+  font-size: 9px;
+  color: #6c7086;
+  transition: transform 0.15s;
+  flex-shrink: 0;
 }
 
 .context-entry-key {
@@ -1980,6 +2003,55 @@ header h1 {
   font-size: 11px;
   color: #6c7086;
   font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+.context-entry-copy-btn {
+  font-size: 10px;
+  color: #6c7086;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  padding: 2px 7px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.context-entry-copy-btn:hover {
+  background: #45475a;
+  color: #cdd6f4;
+}
+
+.context-entry-copy-btn.copied {
+  background: #a6e3a1;
+  color: #1e1e2e;
+  border-color: #a6e3a1;
+}
+
+.context-entry-content {
+  display: none;
+  margin-top: 10px;
+  border-top: 1px solid #313244;
+  padding-top: 10px;
+}
+
+.context-entry-full-content {
+  font-size: 12px;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  color: #cdd6f4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  line-height: 1.5;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.context-content-loading,
+.context-content-error {
+  font-size: 12px;
+  color: #6c7086;
+  font-style: italic;
 }
 
 .context-entry-summary {
@@ -2577,6 +2649,172 @@ header h1 {
 
 .agent-branch-item .agent-connector {
   height: 12px;
+}
+
+/* ========== Project Memory Preview (modal + Team sidebar) ========== */
+
+#project-memory-preview {
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+
+#project-memory-preview .pm-preview-title {
+  color: #cba6f7;
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#project-memory-preview .pm-preview-entry {
+  display: flex;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid #2a2a3e;
+  color: #cdd6f4;
+}
+
+#project-memory-preview .pm-preview-entry:last-child {
+  border-bottom: none;
+}
+
+#project-memory-preview .pm-preview-key {
+  color: #89b4fa;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+#project-memory-preview .pm-preview-summary {
+  color: #a6adc8;
+}
+
+#project-memory-preview .pm-preview-empty {
+  color: #6c7086;
+  font-style: italic;
+}
+
+/* Team flow sidebar project memory section */
+#context-project-memory {
+  margin-top: 16px;
+  border-top: 1px solid #313244;
+  padding-top: 12px;
+}
+
+.pm-context-title {
+  color: #cba6f7;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.pm-context-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-context-entry {
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: border-color 0.2s;
+}
+
+.pm-context-entry:hover {
+  border-color: #45475a;
+}
+
+.pm-context-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pm-context-entry-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pm-context-entry-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.pm-context-entry-toggle {
+  color: #6c7086;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.pm-context-entry-key {
+  color: #cba6f7;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-context-entry-summary {
+  font-size: 12px;
+  color: #a6adc8;
+  margin-bottom: 4px;
+}
+
+.pm-context-entry-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.pm-context-entry-author,
+.pm-context-entry-time {
+  color: #6c7086;
+}
+
+.pm-context-copy-btn {
+  font-size: 10px;
+  color: #6c7086;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  padding: 2px 7px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pm-context-copy-btn:hover {
+  background: #45475a;
+  color: #cdd6f4;
+}
+
+.pm-context-copy-btn.copied {
+  background: #a6e3a1;
+  color: #1e1e2e;
+  border-color: #a6e3a1;
+}
+
+.pm-context-entry-content {
+  display: none;
+  margin-top: 10px;
+  border-top: 1px solid #313244;
+  padding-top: 10px;
 }
 
 /* Team console embedded terminal */

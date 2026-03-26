@@ -12,6 +12,7 @@ import * as templateStore from "./templateStore.js";
 import messageQueue from "./messageQueue.js";
 import taskBoard from "./taskBoard.js";
 import contextStore from "./contextStore.js";
+import { ProjectMemoryStore } from "./projectMemoryStore.js";
 import { BUILTIN_ROLES, EXTRA_ROLES } from "./promptBuilder.js";
 
 // Initialize persistence layer
@@ -703,6 +704,81 @@ app.delete("/api/teams/:teamId/context/:key", (req, res) => {
   const deleted = contextStore.invalidate(req.params.key);
   if (!deleted) return res.status(404).json({ error: "Context entry not found" });
   res.json({ ok: true });
+});
+
+// --- Project Memory API ---
+
+// Preview project memory for a given cwd (no teamId required — used by modal before team creation)
+app.get("/api/project-memory", (req, res) => {
+  const { cwd } = req.query;
+  if (!cwd) return res.status(400).json({ error: "cwd query param is required" });
+  const store = new ProjectMemoryStore(cwd);
+  const entries = store.list();
+  res.json({ entries });
+});
+
+// Store a project memory entry
+app.post("/api/teams/:teamId/project-memory", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  if (!team.cwd) return res.status(400).json({ error: "Team has no working directory" });
+
+  const { key, content, summary, agentLabel } = req.body || {};
+  if (!key || !content) return res.status(400).json({ error: "key and content are required" });
+
+  const store = new ProjectMemoryStore(team.cwd);
+  const entry = store.store(key, content, summary, agentLabel);
+  res.json({ entry });
+});
+
+// Get a single project memory entry (full content)
+app.get("/api/teams/:teamId/project-memory/:key", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  if (!team.cwd) return res.status(400).json({ error: "Team has no working directory" });
+
+  const store = new ProjectMemoryStore(team.cwd);
+  const entry = store.get(req.params.key);
+  if (!entry) return res.status(404).json({ error: "Project memory entry not found" });
+  res.json({ entry: { ...entry, key: req.params.key } });
+});
+
+// List all project memory entries (keys + summaries, no full content)
+app.get("/api/teams/:teamId/project-memory", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  if (!team.cwd) return res.status(400).json({ error: "Team has no working directory" });
+
+  const store = new ProjectMemoryStore(team.cwd);
+  const entries = store.list();
+  res.json({ entries });
+});
+
+// Query project memory by keywords
+app.post("/api/teams/:teamId/project-memory/query", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  if (!team.cwd) return res.status(400).json({ error: "Team has no working directory" });
+
+  const { query } = req.body || {};
+  if (!query) return res.status(400).json({ error: "query is required" });
+
+  const store = new ProjectMemoryStore(team.cwd);
+  const results = store.query(query);
+  res.json({ results });
+});
+
+// Soft-deprecate a project memory entry (DELETE = soft, not hard delete)
+app.delete("/api/teams/:teamId/project-memory/:key", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  if (!team.cwd) return res.status(400).json({ error: "Team has no working directory" });
+
+  const { reason } = req.body || {};
+  const store = new ProjectMemoryStore(team.cwd);
+  const entry = store.deprecate(req.params.key, reason);
+  if (!entry) return res.status(404).json({ error: "Project memory entry not found" });
+  res.json({ entry });
 });
 
 // Broadcast agent events (JSONL-sourced) over WebSocket for real-time UI updates

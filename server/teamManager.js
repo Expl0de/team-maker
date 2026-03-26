@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import sessionManager from "./sessionManager.js";
 import stateStore from "./stateStore.js";
 import { buildOrchestratorPrompt, BUILTIN_ROLES } from "./promptBuilder.js";
+import { ProjectMemoryStore } from "./projectMemoryStore.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MCP_SERVER_PATH = join(__dirname, "mcpServer.js");
@@ -160,6 +161,11 @@ class TeamManager {
         model: mainModel,
       });
 
+      // Load project memory snapshot if available
+      const projectMemorySnapshot = cwd
+        ? new ProjectMemoryStore(cwd).snapshot()
+        : null;
+
       // Build orchestrator prompt with the session ID so sub-agents can message back
       const orchestratorPrompt = buildOrchestratorPrompt({
         teamName: name,
@@ -168,6 +174,7 @@ class TeamManager {
         taskPrompt: prompt,
         roles: teamRoles,
         orchestratorSessionId: session.id,
+        projectMemorySnapshot,
       });
 
       // Inject the prompt now that we have the session ID embedded
@@ -280,6 +287,9 @@ class TeamManager {
       });
 
       // Rebuild orchestrator prompt with the new session ID
+      const projectMemorySnapshot = team.cwd
+        ? new ProjectMemoryStore(team.cwd).snapshot()
+        : null;
       const orchestratorPrompt = buildOrchestratorPrompt({
         teamName: team.name,
         sessionId: team.sessionId,
@@ -287,6 +297,7 @@ class TeamManager {
         taskPrompt: team.prompt,
         roles: team.roles,
         orchestratorSessionId: newSession.id,
+        projectMemorySnapshot,
       });
 
       newSession._injectPrompt(orchestratorPrompt);
@@ -348,6 +359,11 @@ class TeamManager {
       model: mainModel,
     });
 
+    // Load project memory snapshot if available
+    const projectMemorySnapshot = team.cwd
+      ? new ProjectMemoryStore(team.cwd).snapshot()
+      : null;
+
     // Build orchestrator prompt with session ID so sub-agents can message back
     const orchestratorPrompt = buildOrchestratorPrompt({
       teamName: team.name,
@@ -356,6 +372,7 @@ class TeamManager {
       taskPrompt: team.prompt,
       roles: team.roles,
       orchestratorSessionId: session.id,
+      projectMemorySnapshot,
     });
 
     // Inject the prompt now

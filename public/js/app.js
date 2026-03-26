@@ -1835,6 +1835,7 @@ function switchToContextTab() {
   // Load context
   if (activeTeamId) {
     loadTeamContext(activeTeamId);
+    refreshTeamProjectMemory();
   }
   saveTabState(); // P1-21
 }
@@ -1867,17 +1868,29 @@ function renderContextPanel(entries, stats) {
 
   const entriesHtml = entries.map((e) => renderContextEntry(e)).join("");
   panel.innerHTML = statsHtml + `<div class="context-entries">${entriesHtml}</div>`;
+
+  const container = panel.querySelector(".context-entries");
+  if (container) {
+    container.addEventListener("click", handleContextEntryClick);
+  }
 }
 
 function renderContextEntry(entry) {
   const time = new Date(entry.lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const storedBy = entry.storedByName ? escapeHtml(entry.storedByName) : "unknown";
   const summary = entry.summary ? escapeHtml(entry.summary) : "(no summary)";
+  const key = escapeHtml(entry.key);
 
-  return `<div class="context-entry">
+  return `<div class="context-entry" data-key="${key}">
     <div class="context-entry-header">
-      <span class="context-entry-key">${escapeHtml(entry.key)}</span>
-      <span class="context-entry-tokens">~${entry.tokens} tokens</span>
+      <div class="context-entry-header-left">
+        <span class="context-entry-toggle">▶</span>
+        <span class="context-entry-key">${key}</span>
+      </div>
+      <div class="context-entry-header-right">
+        <span class="context-entry-tokens">~${entry.tokens} tokens</span>
+        <button class="context-entry-copy-btn" title="Copy reference to paste to agent">Copy Key</button>
+      </div>
     </div>
     <div class="context-entry-summary">${summary}</div>
     <div class="context-entry-meta">
@@ -1885,7 +1898,64 @@ function renderContextEntry(entry) {
       <span class="context-entry-access">${entry.accessCount}x accessed</span>
       <span class="context-entry-time">${time}</span>
     </div>
+    <div class="context-entry-content"></div>
   </div>`;
+}
+
+async function handleContextEntryClick(e) {
+  const entryEl = e.target.closest(".context-entry");
+  if (!entryEl) return;
+
+  const key = entryEl.dataset.key;
+
+  // Copy button
+  if (e.target.closest(".context-entry-copy-btn")) {
+    const btn = e.target.closest(".context-entry-copy-btn");
+    const copyText = `[Team Context: "${key}"]`;
+    navigator.clipboard.writeText(copyText).then(() => {
+      const original = btn.textContent;
+      btn.textContent = "Copied!";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.classList.remove("copied");
+      }, 1500);
+    });
+    return;
+  }
+
+  // Toggle expand on header click
+  if (!e.target.closest(".context-entry-header")) return;
+
+  const content = entryEl.querySelector(".context-entry-content");
+  const toggle = entryEl.querySelector(".context-entry-toggle");
+  const isExpanded = entryEl.classList.contains("expanded");
+
+  if (isExpanded) {
+    entryEl.classList.remove("expanded");
+    content.style.display = "none";
+    toggle.textContent = "▶";
+    return;
+  }
+
+  entryEl.classList.add("expanded");
+  toggle.textContent = "▼";
+
+  if (!content.dataset.loaded) {
+    content.innerHTML = '<div class="context-content-loading">Loading…</div>';
+    content.style.display = "block";
+    try {
+      const res = await fetchWithTimeout(`/api/teams/${activeTeamId}/context/${encodeURIComponent(key)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.status);
+      content.innerHTML = `<pre class="context-entry-full-content">${escapeHtml(data.entry.content)}</pre>`;
+      content.dataset.loaded = "1";
+    } catch {
+      content.innerHTML = '<div class="context-content-error">Failed to load content.</div>';
+    }
+  } else {
+    content.style.display = "block";
+  }
 }
 
 function handleTeamContextEvent(msg) {
@@ -2593,6 +2663,133 @@ async function deleteTemplate() {
   } catch {}
 }
 
+// --- Project Memory Preview ---
+
+async function loadProjectMemoryPreview(cwd) {
+  const container = document.getElementById("project-memory-preview");
+  if (!cwd) { container.style.display = "none"; return; }
+  try {
+    const res = await fetchWithTimeout(`/api/project-memory?cwd=${encodeURIComponent(cwd)}`);
+    const data = await res.json();
+    const entries = (data.entries || []).filter((e) => !e.deprecated);
+    if (entries.length === 0) { container.style.display = "none"; return; }
+    container.innerHTML = `
+      <div class="pm-preview-title">Prior Project Knowledge (${entries.length} entries from previous teams)</div>
+      ${entries.map((e) => `
+        <div class="pm-preview-entry">
+          <span class="pm-preview-key">${escapeHtml(e.key)}</span>
+          <span class="pm-preview-summary">— ${escapeHtml(e.summary || "(no summary)")}</span>
+        </div>`).join("")}`;
+    container.style.display = "";
+  } catch {
+    container.style.display = "none";
+  }
+}
+
+function renderTeamProjectMemory(entries) {
+  const container = document.getElementById("context-project-memory");
+  if (!container) return;
+  const active = entries && entries.filter((e) => !e.deprecated);
+  if (!active || active.length === 0) {
+    container.style.display = "none";
+    container.innerHTML = "";
+    return;
+  }
+  container.style.display = "block";
+  const entriesHtml = active.map((e) => {
+    const time = e.lastUpdated ? new Date(e.lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+    const storedBy = e.storedBy ? escapeHtml(e.storedBy) : "unknown";
+    const summary = escapeHtml(e.summary || "(no summary)");
+    const key = escapeHtml(e.key);
+    return `<div class="pm-context-entry" data-key="${key}">
+      <div class="pm-context-entry-header">
+        <div class="pm-context-entry-header-left">
+          <span class="pm-context-entry-toggle">▶</span>
+          <span class="pm-context-entry-key">${key}</span>
+        </div>
+        <div class="pm-context-entry-header-right">
+          <button class="pm-context-copy-btn">Copy Key</button>
+        </div>
+      </div>
+      <div class="pm-context-entry-summary">${summary}</div>
+      <div class="pm-context-entry-meta">
+        <span class="pm-context-entry-author">by ${storedBy}</span>
+        ${time ? `<span class="pm-context-entry-time">${time}</span>` : ""}
+      </div>
+      <div class="pm-context-entry-content"></div>
+    </div>`;
+  }).join("");
+  container.innerHTML = `
+    <div class="pm-context-title">Project Memory (${active.length})</div>
+    <div class="pm-context-entries">${entriesHtml}</div>`;
+  container.querySelector(".pm-context-entries").addEventListener("click", handleProjectMemoryEntryClick);
+}
+
+async function handleProjectMemoryEntryClick(e) {
+  const entryEl = e.target.closest(".pm-context-entry");
+  if (!entryEl) return;
+
+  const key = entryEl.dataset.key;
+
+  // Copy button
+  if (e.target.closest(".pm-context-copy-btn")) {
+    const btn = e.target.closest(".pm-context-copy-btn");
+    const copyText = `[Project Memory: "${key}"]`;
+    navigator.clipboard.writeText(copyText).then(() => {
+      const original = btn.textContent;
+      btn.textContent = "Copied!";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.classList.remove("copied");
+      }, 1500);
+    });
+    return;
+  }
+
+  // Toggle expand on header click
+  if (!e.target.closest(".pm-context-entry-header")) return;
+
+  const content = entryEl.querySelector(".pm-context-entry-content");
+  const toggle = entryEl.querySelector(".pm-context-entry-toggle");
+  const isExpanded = entryEl.classList.contains("expanded");
+
+  if (isExpanded) {
+    entryEl.classList.remove("expanded");
+    content.style.display = "none";
+    toggle.textContent = "▶";
+    return;
+  }
+
+  entryEl.classList.add("expanded");
+  toggle.textContent = "▼";
+
+  if (!content.dataset.loaded) {
+    content.innerHTML = '<div class="context-content-loading">Loading…</div>';
+    content.style.display = "block";
+    try {
+      const res = await fetchWithTimeout(`/api/teams/${activeTeamId}/project-memory/${encodeURIComponent(key)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.status);
+      content.innerHTML = `<pre class="context-entry-full-content">${escapeHtml(data.entry.content)}</pre>`;
+      content.dataset.loaded = "1";
+    } catch {
+      content.innerHTML = '<div class="context-content-error">Failed to load content.</div>';
+    }
+  } else {
+    content.style.display = "block";
+  }
+}
+
+async function refreshTeamProjectMemory() {
+  if (!activeTeamId) return;
+  try {
+    const res = await fetchWithTimeout(`/api/teams/${activeTeamId}/project-memory`);
+    const data = await res.json();
+    renderTeamProjectMemory(data.entries || []);
+  } catch { /* non-fatal */ }
+}
+
 // --- Modal logic ---
 
 function showNewTeamModal() {
@@ -2613,6 +2810,7 @@ function showNewTeamModal() {
   editingRoleIndex = -1;
   templateSelect.value = "__default__";
   renderRoleList();
+  document.getElementById("project-memory-preview").style.display = "none";
   modalOverlay.classList.remove("hidden");
   teamNameInput.focus();
 }
@@ -2641,6 +2839,7 @@ async function browseForFolder() {
     const data = await res.json();
     if (!data.cancelled && data.path) {
       pathInput.value = data.path;
+      loadProjectMemoryPreview(data.path);
     }
   } catch (err) {
     statusText.textContent = `Browse error: ${err.message}`;
@@ -3097,6 +3296,7 @@ pathInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") promptInput.focus();
   if (e.key === "Escape") hideModal();
 });
+pathInput.addEventListener("blur", () => loadProjectMemoryPreview(pathInput.value.trim()));
 promptInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) createNewTeam();
   if (e.key === "Escape") hideModal();

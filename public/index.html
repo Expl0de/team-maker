@@ -69,6 +69,7 @@
           <div id="context-panel-content">
             <div class="context-empty">No shared context yet</div>
           </div>
+          <div id="context-project-memory" style="display:none"></div>
         </div>
         <div id="files-panel" class="terminal-wrapper">
           <div id="files-panel-content">
@@ -104,6 +105,8 @@
         <button id="browse-btn" title="Browse in Finder">Browse</button>
       </div>
       <p class="path-hint">Leave empty to use home directory</p>
+
+      <div id="project-memory-preview" style="display:none"></div>
 
       <label for="prompt-input">Team Prompt <span class="required">*</span></label>
       <textarea id="prompt-input" rows="4" placeholder="e.g. Build a REST API with auth, tests, and documentation" spellcheck="false"></textarea>
