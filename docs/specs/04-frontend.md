@@ -1,6 +1,6 @@
 # Frontend
 
-> **Spec Status**: [~] In Progress
+> **Spec Status**: [✓] Validated
 > **Last Updated**: 2026-03-27
 
 ## Purpose
@@ -651,7 +651,7 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 ---
 
 ### Tasks Panel
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Visualize the task board for the team.
 
@@ -725,7 +725,7 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 ---
 
 ### Context Panel
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Display shared context store entries and project memory.
 
@@ -872,7 +872,7 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 ---
 
 ### Files Panel — Clear File Tracking
-> Status: [ ] Pending
+> Status: [✓] Validated
 
 **Purpose**: Allow users to reset the JSONL-based file tracking for the currently active session, clearing the file list so stale or excessive entries do not linger between agent runs.
 

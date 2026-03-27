@@ -8,7 +8,10 @@
       "mcp__team-maker__send_message",
       "mcp__team-maker__query_context",
       "mcp__team-maker__store_project_memory",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "mcp__team-maker__fail_task"
     ]
   }
 }

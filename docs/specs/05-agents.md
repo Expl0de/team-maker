@@ -1,6 +1,6 @@
 # Agent Orchestration
 
-> **Spec Status**: [~] In Progress
+> **Spec Status**: [✓] Validated
 > **Last Updated**: 2026-03-27
 
 ## Purpose
@@ -506,7 +506,7 @@ Claude Code CLI
 ### MCP Tools — Task & Context Management
 
 #### remove_task
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Permanently remove a task from the board (e.g., to discard a cancelled or duplicate task).
 
@@ -533,7 +533,7 @@ Claude Code CLI
 ---
 
 #### remove_context
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Remove a stale or incorrect context entry from the team's shared knowledge store.
 

@@ -1,6 +1,6 @@
 # Backend
 
-> **Spec Status**: [~] In Progress
+> **Spec Status**: [✓] Validated
 > **Last Updated**: 2026-03-27
 
 ## Purpose
@@ -285,7 +285,7 @@ Env: { ...process.env, TERM: "xterm-256color" }
 ---
 
 ### JSONL Event Tracking
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Parse Claude Code JSONL log files for structured agent activity tracking.
 
@@ -588,7 +588,7 @@ POST /api/teams/:teamId/resume
 ---
 
 ### Task Board (server/taskBoard.js)
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Shared task tracking with state machine, dependencies, and complexity-based routing.
 
@@ -708,7 +708,7 @@ content (string), timestamp (ISO8601), read (boolean)
 ---
 
 ### Context Store (server/contextStore.js)
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Team-scoped shared knowledge store to prevent redundant file reads.
 

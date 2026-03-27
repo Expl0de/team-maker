@@ -65,7 +65,7 @@ Browser (xterm.js) <--WebSocket--> Express Server <--PTY--> Claude Code CLI
   | [`docs/specs/02-contracts.md`](docs/specs/02-contracts.md) | All REST endpoints (URL, method, request/response shapes), WebSocket message types, MCP tool schemas |
   | [`docs/specs/03-backend.md`](docs/specs/03-backend.md) | Server module internals — PTY lifecycle, session management, state persistence, JSONL parsing, message queue, context store, project memory |
   | [`docs/specs/04-frontend.md`](docs/specs/04-frontend.md) | UI components — tab management, xterm.js terminal setup, WebSocket client, modals, events/usage panels, Catppuccin theme |
-  | [`docs/specs/05-agents.md`](docs/specs/05-agents.md) | Agent orchestration — MCP server architecture, all 17 MCP tools, agent lifecycle, task state machine, orchestrator pattern, model routing |
+  | [`docs/specs/05-agents.md`](docs/specs/05-agents.md) | Agent orchestration — MCP server architecture, all 19 MCP tools, agent lifecycle, task state machine, orchestrator pattern, model routing |
 
   When you change behavior covered by a spec, update the relevant spec file **and** advance the component status marker to reflect the new state. Also update `docs/specs/README.md` if the file-level status changed.
 
