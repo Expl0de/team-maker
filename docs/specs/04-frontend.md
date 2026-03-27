@@ -1,7 +1,7 @@
 # Frontend
 
-> **Spec Status**: [x] Done
-> **Last Updated**: 2026-03-26
+> **Spec Status**: [~] In Progress
+> **Last Updated**: 2026-03-27
 
 ## Purpose
 
@@ -112,7 +112,7 @@ Covers all files in `public/`: `index.html`, `css/style.css`, `js/app.js`, `usag
 ---
 
 ### Team Pause / Resume UI (public/js/app.js + public/index.html + public/css/style.css)
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Expose pause and resume controls so users can manually suspend a team without killing it, and restore it later. Surface auto-pause notifications when the task board settles.
 
@@ -676,6 +676,9 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - [x] Status badges color-coded
 - [x] Real-time updates from WebSocket
 - [x] Retry button resets failed tasks to pending
+- [x] Each task item has a delete (trash) icon button
+- [x] Clicking delete calls `DELETE /api/teams/{teamId}/tasks/{taskId}` and removes the task from the list
+- [x] `team-task` WebSocket event with `event: "task-removed"` also removes the task from the list
 
 **Open Questions**: None
 
@@ -746,6 +749,9 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - [x] Project memory entries shown separately
 - [x] Real-time updates from WebSocket
 - [x] Token counts and access counts displayed
+- [x] Each context entry has a delete (trash) icon button
+- [x] Clicking delete calls `DELETE /api/teams/{teamId}/context/{key}` and removes the entry from the list
+- [x] `team-context` WebSocket event with `event: "context-removed"` also removes the entry from the list
 
 **Open Questions**: None
 
@@ -860,6 +866,39 @@ usageTabActive, messagesTabActive, tasksTabActive, eventsTabActive, contextTabAc
 - [x] A diff API fetch failure silently omits the toggle (file view renders normally)
 - [x] Back button still navigates back to the file list (existing behavior preserved)
 - [x] All diff UI elements (toggle, format selector, diff lines) use Catppuccin Mocha colors
+
+**Open Questions**: None
+
+---
+
+### Files Panel — Clear File Tracking
+> Status: [ ] Pending
+
+**Purpose**: Allow users to reset the JSONL-based file tracking for the currently active session, clearing the file list so stale or excessive entries do not linger between agent runs.
+
+**Responsibilities**:
+- Render a "Clear Tracking" button in the Files Panel header
+- Call `DELETE /api/sessions/{sessionId}/file-tracking` when clicked
+- Refresh the files list (which will now be empty or reduced) after the server responds
+
+**Interfaces**:
+- Input: User clicks "Clear Tracking" button
+- Output: `DELETE /api/sessions/{sessionId}/file-tracking`, then re-fetch `GET /api/teams/{teamId}/files`
+
+**Behavior / Rules**:
+- The button is positioned in the Files Panel header alongside any other controls
+- `sessionId` is the ID of the session currently active in the main terminal tab (i.e., `currentSessionId`)
+- Button is only enabled when the files list is non-empty; it appears disabled (greyed) when the list is empty
+- After a successful DELETE, immediately call `loadFiles(teamId)` to refresh the panel; the list should be empty or contain only files from other agents whose live event buffers were not cleared
+- If the DELETE request fails, show a brief error toast; do not clear the local list
+- No confirmation dialog is required
+
+**Acceptance Criteria**:
+- [x] "Clear Tracking" button renders in the Files Panel header
+- [x] Button is disabled when there are no files in the list
+- [x] Clicking the button calls `DELETE /api/sessions/{currentSessionId}/file-tracking`
+- [x] On success, `loadFiles(teamId)` is called to refresh the files list
+- [x] On failure, an error toast is shown and the files list is unchanged
 
 **Open Questions**: None
 

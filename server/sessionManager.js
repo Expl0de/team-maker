@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { join } from "path";
 import { homedir } from "os";
 import { JsonlWatcher } from "./jsonlParser.js";
+import stateStore from "./stateStore.js";
 
 const MAX_SCROLLBACK = 100 * 1024; // 100KB
 const MAX_EVENTS = 500; // max structured events kept per session
@@ -523,6 +524,22 @@ class Session {
     if (this.status !== "running") return;
     this._startHealthCheck();
     this._startIdleCheck();
+  }
+
+  /**
+   * Clear the session's structured event buffer and reset the JSONL watcher
+   * read offset so the next poll re-reads from the start of the log.
+   * Also clears persisted file-modification data for this session's team.
+   * Safe to call on exited sessions.
+   */
+  clearFileTracking() {
+    this._events = [];
+    if (this._jsonlWatcher) {
+      this._jsonlWatcher.clearTracking();
+    }
+    if (this.teamId) {
+      stateStore.set(`files.${this.teamId}`, {});
+    }
   }
 
   // P1-25: Reset idle timer (keep alive)

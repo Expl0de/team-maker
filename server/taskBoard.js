@@ -186,6 +186,19 @@ class TaskBoard extends EventEmitter {
   }
 
   /**
+   * Remove a task from the board, regardless of status.
+   * Returns true if removed, false if not found.
+   */
+  removeTask(taskId) {
+    const task = this._tasks.get(taskId);
+    if (!task) return false;
+    this._tasks.delete(taskId);
+    stateStore.delete(`tasks.${taskId}`);
+    this._emit("task-removed", task);
+    return true;
+  }
+
+  /**
    * Get a single task by ID.
    */
   getTask(taskId) {

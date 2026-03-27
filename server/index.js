@@ -149,6 +149,14 @@ app.post("/api/sessions/:id/input", (req, res) => {
   res.json({ ok: true });
 });
 
+// Clear file tracking for a session (resets JSONL watcher offset and event buffer)
+app.delete("/api/sessions/:sessionId/file-tracking", (req, res) => {
+  const session = sessionManager.get(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  session.clearFileTracking();
+  res.json({ ok: true });
+});
+
 // Template API
 app.get("/api/templates", (req, res) => {
   res.json(templateStore.loadAll());
@@ -705,6 +713,16 @@ app.post("/api/teams/:teamId/tasks/:taskId/retry", (req, res) => {
   res.json({ task: out.task });
 });
 
+// Remove a task from the board (any status)
+app.delete("/api/teams/:teamId/tasks/:taskId", (req, res) => {
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  const task = taskBoard.getTask(req.params.taskId);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+  taskBoard.removeTask(req.params.taskId);
+  res.json({ ok: true, title: task.title });
+});
+
 // --- Shared Context Store API ---
 
 // Store a context entry
@@ -757,8 +775,10 @@ app.get("/api/teams/:teamId/context/:key", (req, res) => {
 
 // Delete a context entry
 app.delete("/api/teams/:teamId/context/:key", (req, res) => {
-  const deleted = contextStore.invalidate(req.params.key);
-  if (!deleted) return res.status(404).json({ error: "Context entry not found" });
+  const team = teamManager.get(req.params.teamId);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  const removed = contextStore.removeContext(req.params.key);
+  if (!removed) return res.status(404).json({ error: "Context entry not found" });
   res.json({ ok: true });
 });
 
@@ -892,19 +912,28 @@ taskBoard.on("all-tasks-settled", ({ teamId }) => {
 // Broadcast context store events over WebSocket for real-time UI updates
 contextStore.onContextEvent((event, data) => {
   if (data && data.teamId) {
-    broadcast({
-      type: "team-context",
-      teamId: data.teamId,
-      event,
-      entry: {
+    if (event === "invalidated") {
+      broadcast({
+        type: "team-context",
+        teamId: data.teamId,
+        event: "context-removed",
         key: data.key,
-        summary: data.summary,
-        storedByName: data.storedByName,
-        tokens: data.tokens,
-        accessCount: data.accessCount,
-        lastUpdated: data.lastUpdated,
-      },
-    });
+      });
+    } else {
+      broadcast({
+        type: "team-context",
+        teamId: data.teamId,
+        event,
+        entry: {
+          key: data.key,
+          summary: data.summary,
+          storedByName: data.storedByName,
+          tokens: data.tokens,
+          accessCount: data.accessCount,
+          lastUpdated: data.lastUpdated,
+        },
+      });
+    }
   }
 });
 

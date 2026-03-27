@@ -1,7 +1,7 @@
 # Backend
 
-> **Spec Status**: [x] Done
-> **Last Updated**: 2026-03-26
+> **Spec Status**: [~] In Progress
+> **Last Updated**: 2026-03-27
 
 ## Purpose
 
@@ -351,6 +351,17 @@ Env: { ...process.env, TERM: "xterm-256color" }
 - Agent: description, subagent_type
 - Others: all keys, values truncated to 100 chars
 
+**clearTracking Method on JsonlWatcher** (`clearTracking()`):
+- Resets `_bytesRead = 0`, clearing the incremental-read offset
+- Does not stop the watcher — the watcher continues to watch the same file; on the next polling cycle it will re-read from the beginning
+- Also resets any internal `_reading` lock and pending state
+
+**clearFileTracking Method on Session** (`clearFileTracking()`):
+- Calls `this._jsonlWatcher.clearTracking()` to reset the JSONL read offset
+- Empties the session's structured event buffer: `this._events = []`
+- Clears the persisted file-modification entries for the session's team in stateStore: `stateStore.set('files.{teamId}', {})`
+- Only acts on sessions that have an active `_jsonlWatcher` (i.e., PTY has produced output); safe to call on exited sessions
+
 **Acceptance Criteria**:
 - [x] JSONL files watched and parsed incrementally
 - [x] All event types correctly extracted
@@ -358,6 +369,10 @@ Env: { ...process.env, TERM: "xterm-256color" }
 - [x] Token usage accumulated accurately
 - [x] Adaptive polling reduces resource usage
 - [x] Tool inputs summarized without losing key info
+- [x] `JsonlWatcher.clearTracking()` resets `_bytesRead` to 0 without stopping the watcher
+- [x] `Session.clearFileTracking()` empties `_events` and resets the watcher offset
+- [x] After `clearFileTracking()`, next JSONL poll re-reads from the start of the file
+- [x] Persisted file-modification entries for the team are cleared from stateStore
 
 **Open Questions**: None
 
@@ -480,7 +495,7 @@ Env: { ...process.env, TERM: "xterm-256color" }
 ---
 
 ### Team Pause / Resume (server/teamManager.js + server/sessionManager.js + server/index.js)
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Purpose**: Allow a running team to be suspended (paused) without killing PTY processes, then resumed to restore background monitoring timers. An auto-pause fires automatically when all tasks on the board settle to terminal state.
 
@@ -616,7 +631,14 @@ result, failReason, createdBy, createdByName,
 teamId, createdAt, updatedAt
 ```
 
-**Events**: task-created, task-claimed, task-started, task-completed, task-failed, task-retried
+**Events**: task-created, task-claimed, task-started, task-completed, task-failed, task-retried, task-removed
+
+**removeTask Method** (`removeTask(taskId)`):
+- Removes the task with the given `taskId` from internal state, regardless of current status
+- Persists the updated task list via `stateStore`
+- Emits `task-removed` event: `{ event: "task-removed", taskId, teamId }`
+- Returns `true` if removed, `false` if not found
+- Does not cascade: dependent tasks referencing this taskId are NOT automatically updated
 
 **Acceptance Criteria**:
 - [x] All state transitions enforced
@@ -624,6 +646,9 @@ teamId, createdAt, updatedAt
 - [x] Failed tasks can be retried
 - [x] Events emitted for all transitions
 - [x] Tasks persist via stateStore
+- [x] `removeTask(taskId)` removes task regardless of status
+- [x] `removeTask` broadcasts `task-removed` event
+- [x] `removeTask` returns false for unknown task IDs
 
 **Open Questions**: None
 
@@ -727,12 +752,20 @@ content (string), timestamp (ISO8601), read (boolean)
 - `accessCount` incremented on query match and direct get
 - `lastUpdated` refreshed on access (affects LRU priority)
 
+**removeContext Method** (`removeContext(key)`):
+- Public alias for existing `invalidate(key)` — removes a context entry by key
+- Deletes from `_entries` Map, persists via `stateStore`
+- Calls `_notify("invalidated", { key })` — the index.js listener must broadcast a `team-context` WebSocket event with `{ event: "context-removed", key, teamId }`
+- Returns `true` if removed, `false` if key not found
+
 **Acceptance Criteria**:
 - [x] Context stored, queried, and retrieved
 - [x] LRU eviction works at limits
 - [x] Token estimation reasonable for code vs prose
 - [x] Access tracking affects eviction priority
 - [x] Persists via stateStore
+- [x] `removeContext(key)` removes the entry and returns true; returns false when key absent
+- [x] `_notify("invalidated")` triggers a `team-context` WebSocket broadcast on removal
 
 **Open Questions**: None
 

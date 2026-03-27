@@ -1507,6 +1507,31 @@ header h1 {
   background: rgba(243, 139, 168, 0.25);
 }
 
+.task-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.task-delete-btn {
+  padding: 1px 4px;
+  font-size: 11px;
+  background: transparent;
+  color: #6c7086;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.task-delete-btn:hover {
+  opacity: 1;
+  color: #f38ba8;
+}
+
 #tasks-panel::-webkit-scrollbar {
   width: 6px;
 }
@@ -2055,6 +2080,24 @@ header h1 {
   border-color: #a6e3a1;
 }
 
+.context-entry-delete-btn {
+  font-size: 11px;
+  color: #6c7086;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 2px 4px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.context-entry-delete-btn:hover {
+  opacity: 1;
+  color: #f38ba8;
+}
+
 .context-entry-content {
   display: none;
   margin-top: 10px;
@@ -2107,7 +2150,49 @@ header h1 {
 
 #files-panel {
   overflow-y: auto;
+  padding: 0 !important;
+}
+
+#files-panel.active {
+  display: flex;
+  flex-direction: column;
+}
+
+#files-panel-content {
+  flex: 1;
   padding: 16px;
+}
+
+#files-panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #1e1e2e;
+  border-bottom: 1px solid #313244;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#files-clear-tracking-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+  background: rgba(137, 180, 250, 0.1);
+  color: #89b4fa;
+  border: 1px solid rgba(137, 180, 250, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#files-clear-tracking-btn:hover:not(:disabled) {
+  background: rgba(137, 180, 250, 0.2);
+}
+
+#files-clear-tracking-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 #files-panel::-webkit-scrollbar {

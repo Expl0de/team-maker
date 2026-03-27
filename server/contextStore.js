@@ -163,6 +163,20 @@ class ContextStore {
   }
 
   /**
+   * Public method to remove an entry by key. Includes teamId in the
+   * notification so the WS broadcast can target the right team.
+   * Returns true if removed, false if not found.
+   */
+  removeContext(key) {
+    const entry = this._entries.get(key);
+    if (!entry) return false;
+    this._entries.delete(key);
+    this._persist();
+    this._notify("invalidated", { key, teamId: entry.teamId });
+    return true;
+  }
+
+  /**
    * Clear all entries for a team.
    */
   clearTeam(teamId) {

@@ -1,7 +1,7 @@
 # Contracts & Interfaces
 
-> **Spec Status**: [x] Done
-> **Last Updated**: 2026-03-26
+> **Spec Status**: [~] In Progress
+> **Last Updated**: 2026-03-27
 
 ## Purpose
 
@@ -131,6 +131,16 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 
 ---
 
+#### DELETE /api/sessions/:sessionId/file-tracking — Clear File Tracking
+> Status: [x] Done
+
+**Response** (200): `{ "ok": true }`
+**Errors**: 404 (Session not found)
+
+**Behavior**: Resets the session's JSONL watcher read offset to 0 and empties the session's structured event buffer (`_events`). On next PTY output the JSONL file will be re-read from the beginning, repopulating the event buffer. Also clears the persisted file-modification list for this session's team from `stateStore` (`files.{teamId}`), so the Files Panel reflects the fresh state immediately.
+
+---
+
 ### Teams
 
 #### POST /api/teams — Create Team
@@ -250,7 +260,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/pause — Pause Running Team
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Response** (200): `{ "ok": true, "team": Team }`
 **Errors**: 404 (Team not found), 400 (Team is not running)
@@ -263,7 +273,7 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 ---
 
 #### POST /api/teams/:teamId/resume — Resume Paused Team
-> Status: [x] Done
+> Status: [✓] Validated
 
 **Response** (200): `{ "ok": true, "team": Team }`
 **Errors**: 404 (Team not found), 400 (Team is not paused)
@@ -564,6 +574,16 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 
 ---
 
+#### DELETE /api/teams/:teamId/tasks/:taskId — Remove Task
+> Status: [x] Done
+
+**Response** (200): `{ "ok": true }`
+**Errors**: 404 (Team not found, Task not found)
+
+**Behavior**: Permanently removes the task from the task board regardless of current status (pending, assigned, in_progress, completed, or failed). Broadcasts a `team-task` WebSocket event with `{ event: "task-removed", taskId, teamId }`.
+
+---
+
 ### Context Store
 
 #### POST /api/teams/:teamId/context — Store Context Entry
@@ -628,7 +648,11 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 > Status: [x] Done
 
 **Response** (200): `{ "ok": true }`
-**Errors**: 404
+**Errors**: 404 (Context entry not found)
+
+**Behavior**: Removes the context entry by key. Broadcasts a `team-context` WebSocket event with `{ event: "context-removed", key, teamId }`.
+
+**Implementation note**: Current `server/index.js` has a URL typo (`/api/teams:teamId/context/:key` — missing `/` before `:teamId`) that must be fixed. The `teamId` param must also be validated (404 if team not found).
 
 ---
 
@@ -1332,3 +1356,27 @@ All tools are exposed by `server/mcpServer.js` via StdioServerTransport. Paramet
 
 **Returns**: `Project memory entry "{key}" marked as deprecated.`
 **REST**: DELETE /api/teams/{TEAM_ID}/project-memory/{key}
+
+---
+
+### remove_task
+> Status: [x] Done
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| taskId | z.string() | Yes | ID of the task to permanently remove |
+
+**Returns**: `Task removed: "{title}"`
+**REST**: DELETE /api/teams/{TEAM_ID}/tasks/{taskId}
+
+---
+
+### remove_context
+> Status: [x] Done
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| key | z.string() | Yes | Key of the context entry to remove |
+
+**Returns**: `Context entry removed: "{key}"`
+**REST**: DELETE /api/teams/{TEAM_ID}/context/{key}

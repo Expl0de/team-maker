@@ -1489,6 +1489,27 @@ function renderTasksPanel(tasks, summary) {
       } catch {}
     });
   });
+
+  // Attach delete button handlers
+  panel.querySelectorAll(".task-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const taskId = e.currentTarget.dataset.taskId;
+      const teamId = e.currentTarget.dataset.teamId;
+      try {
+        const res = await fetchWithTimeout(`/api/teams/${teamId}/tasks/${taskId}`, { method: "DELETE" });
+        if (res.ok) {
+          const card = panel.querySelector(`.task-card[data-task-id="${taskId}"]`);
+          if (card) card.remove();
+          if (teamTasks.has(teamId)) {
+            const tasks = teamTasks.get(teamId);
+            const idx = tasks.findIndex((t) => t.id === taskId);
+            if (idx >= 0) tasks.splice(idx, 1);
+          }
+        }
+      } catch {}
+    });
+  });
 }
 
 function renderTaskSummaryHTML(summary) {
@@ -1537,10 +1558,13 @@ function renderTaskCard(task) {
     ? `<div class="task-deps">depends on ${task.dependsOn.length} task(s)</div>`
     : "";
 
-  return `<div class="task-card task-${task.status}">
+  return `<div class="task-card task-${task.status}" data-task-id="${task.id}" data-team-id="${task.teamId}">
     <div class="task-card-header">
       <span class="task-title">${escapeHtml(task.title)}</span>
-      <span class="task-time">${time}</span>
+      <div class="task-card-actions">
+        <span class="task-time">${time}</span>
+        <button class="task-delete-btn" data-task-id="${task.id}" data-team-id="${task.teamId}" title="Remove task">🗑</button>
+      </div>
     </div>
     ${desc}${complexity}${assignee}${deps}${result}${failReason}${retryBtn}
   </div>`;
@@ -1548,6 +1572,23 @@ function renderTaskCard(task) {
 
 function handleTeamTaskEvent(msg) {
   const teamId = msg.teamId;
+
+  if (msg.event === "task-removed") {
+    const removedId = (msg.task && msg.task.id) || msg.taskId;
+    // Remove from local cache
+    if (teamTasks.has(teamId)) {
+      const tasks = teamTasks.get(teamId);
+      const idx = tasks.findIndex((t) => t.id === removedId);
+      if (idx >= 0) tasks.splice(idx, 1);
+    }
+    // Remove from DOM if panel is visible
+    if (tasksTabActive && activeTeamId === teamId) {
+      const panel = document.getElementById("tasks-panel-content");
+      const card = panel && panel.querySelector(`.task-card[data-task-id="${removedId}"]`);
+      if (card) card.remove();
+    }
+    return;
+  }
 
   // Update local cache
   if (teamTasks.has(teamId)) {
@@ -1936,6 +1977,7 @@ function renderContextEntry(entry) {
       <div class="context-entry-header-right">
         <span class="context-entry-tokens">~${entry.tokens} tokens</span>
         <button class="context-entry-copy-btn" title="Copy reference to paste to agent">Copy Key</button>
+        <button class="context-entry-delete-btn" title="Remove context entry">🗑</button>
       </div>
     </div>
     <div class="context-entry-summary">${summary}</div>
@@ -1953,6 +1995,23 @@ async function handleContextEntryClick(e) {
   if (!entryEl) return;
 
   const key = entryEl.dataset.key;
+
+  // Delete button
+  if (e.target.closest(".context-entry-delete-btn")) {
+    if (!activeTeamId) return;
+    try {
+      const res = await fetchWithTimeout(`/api/teams/${activeTeamId}/context/${encodeURIComponent(key)}`, { method: "DELETE" });
+      if (res.ok) {
+        entryEl.remove();
+        if (teamContexts.has(activeTeamId)) {
+          const entries = teamContexts.get(activeTeamId);
+          const idx = entries.findIndex((e) => e.key === key);
+          if (idx >= 0) entries.splice(idx, 1);
+        }
+      }
+    } catch {}
+    return;
+  }
 
   // Copy button
   if (e.target.closest(".context-entry-copy-btn")) {
@@ -2006,6 +2065,22 @@ async function handleContextEntryClick(e) {
 
 function handleTeamContextEvent(msg) {
   const teamId = msg.teamId;
+
+  if (msg.event === "context-removed") {
+    // Remove from local cache
+    if (teamContexts.has(teamId)) {
+      const entries = teamContexts.get(teamId);
+      const idx = entries.findIndex((e) => e.key === msg.key);
+      if (idx >= 0) entries.splice(idx, 1);
+    }
+    // Remove from DOM if panel is visible
+    if (contextTabActive && activeTeamId === teamId) {
+      const panel = document.getElementById("context-panel-content");
+      const entryEl = panel && panel.querySelector(`.context-entry[data-key="${CSS.escape(msg.key)}"]`);
+      if (entryEl) entryEl.remove();
+    }
+    return;
+  }
 
   // Refresh the panel if it's active
   if (contextTabActive && activeTeamId === teamId) {
@@ -2077,6 +2152,9 @@ async function loadTeamFiles(teamId) {
 
 function renderFilesPanel(files) {
   const panel = document.getElementById("files-panel-content");
+  const clearBtn = document.getElementById("files-clear-tracking-btn");
+  if (clearBtn) clearBtn.disabled = !files || files.length === 0;
+
   if (!files || files.length === 0) {
     panel.innerHTML = '<div class="files-empty">No files changed yet</div>';
     return;
@@ -3711,6 +3789,27 @@ document.getElementById("events-filter-search").addEventListener("input", () => 
       renderEventsPanel(teamEvents.get(activeTeamId));
     }
   }, 200);
+});
+
+// Files panel — Clear Tracking button
+document.getElementById("files-clear-tracking-btn").addEventListener("click", async () => {
+  if (!activeTeamId) return;
+  // Find the main (orchestrator) session for the active team
+  const teamSession = Array.from(sessions.values()).find(
+    (s) => s.teamId === activeTeamId && s.role === "main"
+  ) || Array.from(sessions.values()).find((s) => s.teamId === activeTeamId);
+  if (!teamSession) return;
+  try {
+    const res = await fetchWithTimeout(`/api/sessions/${teamSession.id}/file-tracking`, { method: "DELETE" });
+    if (res.ok) {
+      loadTeamFiles(activeTeamId);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || "Failed to clear file tracking");
+    }
+  } catch {
+    showToast("Failed to clear file tracking");
+  }
 });
 
 // Init

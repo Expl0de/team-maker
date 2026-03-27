@@ -19,17 +19,17 @@ Browser (xterm.js) <--WebSocket--> Express Server <--PTY--> Claude Code CLI
 
 **Server modules** (all in `server/`):
 - **index.js** — Express HTTP + WebSocket server. REST endpoints for session/team/task CRUD, `/api/browse-folder` via `osascript`, WebSocket terminal I/O proxy.
-- **sessionManager.js** — Singleton managing PTY-backed Claude CLI processes. 100KB scrollback, question detection (ANSI-stripped pattern matching), `{type:"question"}` WebSocket events.
-- **teamManager.js** — Team CRUD, orchestrator spawn, sub-agent management, MCP config generation, model routing (ceiling semantics).
-- **taskBoard.js** — Task state machine (pending → assigned → in_progress → completed/failed), dependency resolution, complexity-based model routing.
+- **sessionManager.js** — Singleton managing PTY-backed Claude CLI processes. 100KB scrollback, question detection (ANSI-stripped pattern matching), `{type:"question"}` WebSocket events. `suspendMonitoring()`/`resumeMonitoring()` pause background timers without killing the PTY. `clearFileTracking()` resets JSONL event buffer and watcher offset for a session.
+- **teamManager.js** — Team CRUD, orchestrator spawn, sub-agent management, MCP config generation, model routing (ceiling semantics). `pause()`/`resume()` manage team status (`"running"` | `"paused"` | `"stopped"`).
+- **taskBoard.js** — Task state machine (pending → assigned → in_progress → completed/failed), dependency resolution, complexity-based model routing. Extends EventEmitter; emits `all-tasks-settled` when all tasks reach terminal state (triggers auto-pause). `removeTask(taskId)` permanently removes a task regardless of status.
 - **messageQueue.js** — Inter-agent messaging: server-side queue + PTY injection for instant delivery.
-- **contextStore.js** — Team-scoped key-value knowledge store. 500KB cap with LRU eviction.
+- **contextStore.js** — Team-scoped key-value knowledge store. 500KB cap with LRU eviction. `removeContext(key)` permanently removes an entry and broadcasts `"invalidated"` with teamId.
 - **stateStore.js** — JSON persistence with dot-path get/set, debounced writes to disk.
-- **jsonlParser.js** — JSONL log parser. `fs.watch` + adaptive polling; structured source of truth for agent activity.
+- **jsonlParser.js** — JSONL log parser. `fs.watch` + adaptive polling; structured source of truth for agent activity. `JsonlWatcher.clearTracking()` resets read offset to 0 without stopping the watcher.
 - **promptBuilder.js** — Orchestrator prompt generation. Built-in and custom role definitions.
 - **projectMemoryStore.js** — File-based project memory persisted at `<cwd>/.team-maker/project-memory.json`.
 - **templateStore.js** — Team role template CRUD.
-- **mcpServer.js** — MCP sidecar (StdioServerTransport). Exposes 17 tools that proxy to the REST API.
+- **mcpServer.js** — MCP sidecar (StdioServerTransport). Exposes 19 tools that proxy to the REST API (includes `remove_task` and `remove_context`).
 
 **Frontend** (`public/`): Vanilla HTML/CSS/JS, no build step. xterm.js from CDN. `app.js` manages tabs, WebSocket connections, terminal instances, working-directory modal, Web Audio alerts, and stuck-agent overlay.
 

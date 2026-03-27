@@ -227,6 +227,15 @@ class JsonlWatcher {
     }
   }
 
+  /**
+   * Reset the read offset to 0 so the next poll re-reads from the start.
+   * Does NOT stop the watcher — polling continues as normal.
+   */
+  clearTracking() {
+    this._bytesRead = 0;
+    this._reading = false;
+  }
+
   async _readNewLines() {
     if (this._reading) return; // Prevent concurrent reads
     this._reading = true;

@@ -302,7 +302,55 @@ server.tool(
   }
 );
 
+server.tool(
+  "remove_task",
+  "Permanently remove a task from the task board. Use this only for genuinely cancelled tasks — prefer fail_task + retry to reschedule work. Removal is irreversible and works regardless of the task's current status.",
+  {
+    taskId: z.string().describe("The ID of the task to remove"),
+  },
+  async ({ taskId }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/tasks/${taskId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      return {
+        content: [{ type: "text", text: `Task removed: "${data.title || taskId}"` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
 // --- Shared Context Store MCP Tools ---
+
+server.tool(
+  "remove_context",
+  "Remove a context entry from the team's shared knowledge store. Use this to delete stale or incorrect entries. Removal is permanent — to update content, use store_context with the same key instead.",
+  {
+    key: z.string().describe("The key of the context entry to remove"),
+  },
+  async ({ key }) => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/teams/${TEAM_ID}/context/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Error: ${data.error}` }], isError: true };
+      }
+      return {
+        content: [{ type: "text", text: `Context entry removed: "${key}"` }],
+      };
+    } catch (err) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
 
 server.tool(
   "store_context",

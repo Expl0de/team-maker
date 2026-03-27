@@ -1,7 +1,7 @@
 # Agent Orchestration
 
-> **Spec Status**: [x] Done
-> **Last Updated**: 2026-03-26
+> **Spec Status**: [~] In Progress
+> **Last Updated**: 2026-03-27
 
 ## Purpose
 
@@ -500,6 +500,62 @@ Claude Code CLI
 - [x] Excluded from future team prompt snapshots
 - [x] Still searchable via query_project_memory
 - [x] Reason recorded
+
+---
+
+### MCP Tools — Task & Context Management
+
+#### remove_task
+> Status: [x] Done
+
+**Purpose**: Permanently remove a task from the board (e.g., to discard a cancelled or duplicate task).
+
+**Parameters**:
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| taskId | z.string() | Yes | ID of the task to remove |
+
+**Behavior**:
+1. DELETE /api/teams/{TEAM_ID}/tasks/{taskId}
+2. Task is removed regardless of current status (pending, in_progress, completed, etc.)
+3. Broadcasts `team-task` WebSocket event with `event: "task-removed"` to update the UI
+
+**Return**: `Task removed: "{title}"`
+
+**Usage guidance**: Use only for tasks that are genuinely no longer needed. Removing a task that other agents depend on will leave those dependents in an unresolvable state (their unmet dependencies will never complete). Prefer `fail_task` + `retry` for tasks that should be rescheduled.
+
+**Acceptance Criteria**:
+- [x] Task removed regardless of current status
+- [x] Returns task title in confirmation message
+- [x] 404 returned if task does not exist
+- [x] WebSocket event triggers UI update
+
+---
+
+#### remove_context
+> Status: [x] Done
+
+**Purpose**: Remove a stale or incorrect context entry from the team's shared knowledge store.
+
+**Parameters**:
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| key | z.string() | Yes | Key of the context entry to remove |
+
+**Behavior**:
+1. DELETE /api/teams/{TEAM_ID}/context/{key}
+2. Entry is permanently deleted (not soft-deprecated)
+3. Broadcasts `team-context` WebSocket event with `event: "context-removed"` to update the UI
+
+**Return**: `Context entry removed: "{key}"`
+
+**Usage guidance**: Use when a context entry contains outdated or incorrect information that should not be used by other agents. To replace an entry with updated content, simply call `store_context` with the same key — it upserts.
+
+**Acceptance Criteria**:
+- [x] Context entry removed by key
+- [x] Returns confirmation message with key name
+- [x] 404 returned if key does not exist
+- [x] WebSocket event triggers UI update in Context Panel
 
 ---
 
