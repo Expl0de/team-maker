@@ -31,7 +31,7 @@ class Team {
     this.agentIds = [];
     this.agentCounter = 0;
     this.createdAt = new Date();
-    this.status = status || "running"; // "running" | "stopped"
+    this.status = status || "running"; // "running" | "paused" | "stopped"
   }
 
   toJSON() {
@@ -410,6 +410,40 @@ class TeamManager {
     this._persistTeam(team);
 
     return { team, session };
+  }
+
+  /**
+   * Pause a running team: suspend background monitoring timers without killing PTY processes.
+   * Returns null if team not found or not running.
+   */
+  pause(teamId) {
+    const team = this.teams.get(teamId);
+    if (!team || team.status !== "running") return null;
+
+    team.status = "paused";
+    for (const agentId of team.agentIds) {
+      const session = sessionManager.get(agentId);
+      if (session) session.suspendMonitoring();
+    }
+    this._persistTeam(team);
+    return team;
+  }
+
+  /**
+   * Resume a paused team: restart background monitoring timers for live sessions.
+   * Returns null if team not found or not paused.
+   */
+  resume(teamId) {
+    const team = this.teams.get(teamId);
+    if (!team || team.status !== "paused") return null;
+
+    team.status = "running";
+    for (const agentId of team.agentIds) {
+      const session = sessionManager.get(agentId);
+      if (session && session.status === "running") session.resumeMonitoring();
+    }
+    this._persistTeam(team);
+    return team;
   }
 
   /**

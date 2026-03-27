@@ -479,6 +479,99 @@ Env: { ...process.env, TERM: "xterm-256color" }
 
 ---
 
+### Team Pause / Resume (server/teamManager.js + server/sessionManager.js + server/index.js)
+> Status: [x] Done
+
+**Purpose**: Allow a running team to be suspended (paused) without killing PTY processes, then resumed to restore background monitoring timers. An auto-pause fires automatically when all tasks on the board settle to terminal state.
+
+**Responsibilities**:
+- `sessionManager.js` — `Session` class gains `suspendMonitoring()` and `resumeMonitoring()` instance methods
+- `teamManager.js` — `TeamManager` gains `pause(teamId)` and `resume(teamId)` methods
+- `taskBoard.js` — emits `all-tasks-settled` event after each task completion/failure when no tasks remain in active state
+- `index.js` — two new route handlers (POST pause / POST resume); listens for `all-tasks-settled` to trigger auto-pause; broadcasts WS events
+
+**Team Status Values**:
+| Status | PTY alive? | Intervals running? | Can relaunch? |
+|--------|-----------|-------------------|---------------|
+| `"running"` | Yes | Yes | No |
+| `"paused"` | Yes | No | No |
+| `"stopped"` | No | No | Yes |
+
+**Session.suspendMonitoring()**:
+- Calls `clearInterval(this._healthCheckInterval)` and sets `this._healthCheckInterval = null`
+- Calls `clearInterval(this._idleCheckTimer)` and sets `this._idleCheckTimer = null`
+- Does NOT kill the PTY, change `this.status`, or emit any events
+- Safe to call multiple times (no-op if already cleared)
+
+**Session.resumeMonitoring()**:
+- Guards: only proceeds if `this.status === "running"`
+- Calls `this._startHealthCheck()` and `this._startIdleCheck()`
+- Note: these methods already set their own intervals internally; calling them again starts fresh timers
+
+**TeamManager.pause(teamId)**:
+- Returns `null` if team not found or `team.status !== "running"`
+- Sets `team.status = "paused"`
+- Iterates `team.agentIds`, resolves each via `sessionManager.get()`, calls `session.suspendMonitoring()` (skip if session not found)
+- Calls `_persistTeam(team)`
+- Returns `team`
+
+**TeamManager.resume(teamId)**:
+- Returns `null` if team not found or `team.status !== "paused"`
+- Sets `team.status = "running"`
+- Iterates `team.agentIds`, resolves each via `sessionManager.get()`, calls `session.resumeMonitoring()` (skip if session not found or not `"running"`)
+- Calls `_persistTeam(team)`
+- Returns `team`
+
+**Auto-Pause — taskBoard.js**:
+- After `completeTask()` or `failTask()` modifies a task, compute `getBoardSummary(teamId)`
+- If `summary.pending === 0 && summary.assigned === 0 && summary.in_progress === 0 && summary.total > 0`, emit event `{ type: "all-tasks-settled", teamId }`
+- Event is internal (EventEmitter); `index.js` subscribes on startup
+
+**Auto-Pause — index.js handler**:
+```
+taskBoard.on("all-tasks-settled", ({ teamId }) => {
+  const team = teamManager.pause(teamId);
+  if (team) broadcast({ type: "team-update", event: "team-paused", teamId, source: "auto" });
+});
+```
+
+**Manual Pause — index.js**:
+```
+POST /api/teams/:teamId/pause
+  → teamManager.pause(teamId) → 400 if null → broadcast team-paused (source: "manual") → 200 { ok, team }
+
+POST /api/teams/:teamId/resume
+  → teamManager.resume(teamId) → 400 if null → broadcast team-resumed → 200 { ok, team }
+```
+
+**MCP Sidecar**:
+- `mcpServer.js` connects via HTTP to the REST API — no changes needed
+- All 17 MCP tools remain functional while team is `"paused"`
+
+**Persistence Behavior**:
+- `team.status = "paused"` IS written to stateStore by `_persistTeam()`
+- On server restart, `restoreFromState()` forces all teams to `"stopped"` regardless of persisted status — this is the existing behavior and is intentional (PTY processes don't survive restarts)
+
+**Acceptance Criteria**:
+- [x] `POST /api/teams/:teamId/pause` returns 400 when team status is not `"running"`
+- [x] `POST /api/teams/:teamId/pause` sets `team.status = "paused"` and calls `suspendMonitoring()` on all live sessions
+- [x] `POST /api/teams/:teamId/resume` returns 400 when team status is not `"paused"`
+- [x] `POST /api/teams/:teamId/resume` sets `team.status = "running"` and calls `resumeMonitoring()` on sessions with status `"running"`
+- [x] `suspendMonitoring()` clears both `_healthCheckInterval` and `_idleCheckTimer`; PTY remains alive; session status unchanged
+- [x] `resumeMonitoring()` restarts health-check and idle-check timers only if `session.status === "running"`
+- [x] Calling `suspendMonitoring()` twice does not throw (idempotent)
+- [x] Auto-pause fires when all tasks for a team are `completed` or `failed` and total > 0
+- [x] Auto-pause does NOT fire if any task is `pending`, `assigned`, or `in_progress`
+- [x] Auto-pause does NOT fire if the team has zero tasks
+- [x] WS broadcast `{ type: "team-update", event: "team-paused", source: "manual" | "auto" }` sent on pause
+- [x] WS broadcast `{ type: "team-update", event: "team-resumed" }` sent on resume
+- [x] MCP tools respond normally while team is `"paused"`
+- [x] On server restart, a previously paused team is restored as `"stopped"` (existing `restoreFromState()` behavior)
+
+**Open Questions**: None
+
+---
+
 ### Task Board (server/taskBoard.js)
 > Status: [x] Done
 

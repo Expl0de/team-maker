@@ -213,6 +213,33 @@ header h1 {
   color: #f9e2af;
 }
 
+.team-item-badge.paused {
+  color: #f9e2af;
+}
+
+.team-item .pause-team-btn,
+.team-item .resume-team-btn {
+  background: none;
+  border: none;
+  color: #f9e2af;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.team-item:hover .pause-team-btn,
+.team-item:hover .resume-team-btn {
+  opacity: 1;
+}
+
+.team-item .pause-team-btn:hover,
+.team-item .resume-team-btn:hover {
+  background: #313244;
+}
+
 .team-item .relaunch-team-btn {
   background: none;
   border: none;

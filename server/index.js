@@ -277,6 +277,20 @@ app.post("/api/teams/:teamId/relaunch", (req, res) => {
   res.json({ team: team.toJSON(), mainAgent: session.toJSON() });
 });
 
+app.post("/api/teams/:teamId/pause", (req, res) => {
+  const team = teamManager.pause(req.params.teamId);
+  if (!team) return res.status(400).json({ error: "Team not found or not running" });
+  broadcast({ type: "team-update", event: "team-paused", teamId: team.id, source: "manual" });
+  res.json({ ok: true, team: team.toJSON() });
+});
+
+app.post("/api/teams/:teamId/resume", (req, res) => {
+  const team = teamManager.resume(req.params.teamId);
+  if (!team) return res.status(400).json({ error: "Team not found or not paused" });
+  broadcast({ type: "team-update", event: "team-resumed", teamId: team.id });
+  res.json({ ok: true, team: team.toJSON() });
+});
+
 // Model routing configuration
 app.get("/api/teams/:teamId/model-routing", (req, res) => {
   const team = teamManager.get(req.params.teamId);
@@ -865,6 +879,14 @@ taskBoard.onTaskEvent((event, task) => {
     event,
     task,
   });
+});
+
+// Auto-pause when all tasks for a team settle to terminal state
+taskBoard.on("all-tasks-settled", ({ teamId }) => {
+  const team = teamManager.pause(teamId);
+  if (team) {
+    broadcast({ type: "team-update", event: "team-paused", teamId: team.id, source: "auto" });
+  }
 });
 
 // Broadcast context store events over WebSocket for real-time UI updates

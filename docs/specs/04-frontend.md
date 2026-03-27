@@ -111,6 +111,88 @@ Covers all files in `public/`: `index.html`, `css/style.css`, `js/app.js`, `usag
 
 ---
 
+### Team Pause / Resume UI (public/js/app.js + public/index.html + public/css/style.css)
+> Status: [x] Done
+
+**Purpose**: Expose pause and resume controls so users can manually suspend a team without killing it, and restore it later. Surface auto-pause notifications when the task board settles.
+
+**Responsibilities**:
+- Render a Pause button for `"running"` teams, Resume button for `"paused"` teams, Relaunch button for `"stopped"` teams
+- Call `POST /api/teams/:teamId/pause` or `POST /api/teams/:teamId/resume` on user action
+- Handle `team-paused` and `team-resumed` WS broadcast events to update local state without page reload
+- Show `"paused"` badge in the team sidebar item (alongside the agent-count badge)
+- Display an informational toast when auto-pause fires (`source === "auto"`)
+- Disable New Agent button for paused teams
+- Show "Team paused" empty state when active team is paused and user navigates to terminal area
+
+**Interfaces**:
+- Input: User clicks (Pause / Resume buttons), WS events `{ type: "team-update", event: "team-paused" | "team-resumed" }`
+- Output: `POST /api/teams/:teamId/pause`, `POST /api/teams/:teamId/resume`, DOM updates, toast notifications
+
+**Behavior / Rules**:
+
+**Sidebar Team Item Buttons** (`renderTeamItem()`):
+| Team Status | Button shown |
+|-------------|-------------|
+| `"running"` | Pause (⏸) |
+| `"paused"` | Resume (▶) |
+| `"stopped"` | Relaunch (↺) |
+
+- Only one of the three state buttons is shown at a time
+- Pause and Resume buttons appear in the same position as the existing Relaunch button
+- Delete button is always shown regardless of status
+
+**Status Badge** (`renderTeamItem()`):
+- `"running"` → show agent count badge (existing behavior)
+- `"paused"` → show `"paused"` badge with Catppuccin Yellow color (`#f9e2af`)
+- `"stopped"` → show `"stopped"` badge (existing behavior)
+
+**New Agent Button**:
+- Disabled when active team status is `"running"` → no change
+- Disabled when active team status is `"paused"` (same guard as `"stopped"`)
+
+**Empty State**:
+- When a paused team is selected and no terminal is active, `#empty-state` shows:
+  `"Team \"<name>\" is paused — click ▶ to resume"`
+
+**Usage Auto-Refresh**:
+- On `team-paused` event: call `stopUsageAutoRefresh()` if the paused team is the active team
+- On `team-resumed` event: call `startUsageAutoRefresh()` if the resumed team is the active team
+
+**Stuck-Agent Overlay**:
+- Do not show the stuck-agent overlay for sessions belonging to a paused team (same guard as `"stopped"` check already in place for `agent_idle_killed` and `agent_idle_warning` events)
+
+**WS Event Handling**:
+- `{ type: "team-update", event: "team-paused", teamId, source }`:
+  1. Update local `teams.get(teamId).status = "paused"`
+  2. Re-render the team sidebar item
+  3. If `source === "auto"`: show toast "Team paused — all tasks completed"
+  4. If paused team is currently active: update empty state
+- `{ type: "team-update", event: "team-resumed", teamId }`:
+  1. Update local `teams.get(teamId).status = "running"`
+  2. Re-render the team sidebar item
+  3. If resumed team is currently active: refresh agent list and update empty state
+
+**Acceptance Criteria**:
+- [x] Pause button (⏸) renders in sidebar for `"running"` teams
+- [x] Resume button (▶) renders in sidebar for `"paused"` teams
+- [x] Relaunch button (↺) renders in sidebar only for `"stopped"` teams (no change to existing)
+- [x] Clicking Pause calls `POST /api/teams/:teamId/pause`; on success, sidebar re-renders with `"paused"` badge and Resume button (no page reload)
+- [x] Clicking Resume calls `POST /api/teams/:teamId/resume`; on success, sidebar re-renders with agent-count badge and Pause button (no page reload)
+- [x] `"paused"` badge uses Catppuccin Yellow to visually distinguish from `"stopped"` (red/muted)
+- [x] New Agent button is disabled when active team is `"paused"`
+- [x] Empty state for a paused active team shows the pause message with resume instruction
+- [x] WS event `team-paused` updates local state and sidebar without page reload
+- [x] WS event `team-resumed` updates local state and sidebar without page reload
+- [x] Auto-pause toast "Team paused — all tasks completed" shown only when `source === "auto"`
+- [x] Usage auto-refresh stops when active team receives `team-paused` event
+- [x] Usage auto-refresh restarts when active team receives `team-resumed` event
+- [x] Idle warning / idle-killed overlays are suppressed for sessions in a paused team
+
+**Open Questions**: None
+
+---
+
 ### Tab Management
 > Status: [x] Done
 

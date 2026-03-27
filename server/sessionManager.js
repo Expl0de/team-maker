@@ -500,6 +500,31 @@ class Session {
     }, startDelay);
   }
 
+  /**
+   * Suspend background monitoring timers (health-check and idle-check).
+   * PTY process and session status are NOT affected. Idempotent.
+   */
+  suspendMonitoring() {
+    if (this._healthCheckInterval) {
+      clearInterval(this._healthCheckInterval);
+      this._healthCheckInterval = null;
+    }
+    if (this._idleCheckTimer) {
+      clearInterval(this._idleCheckTimer);
+      this._idleCheckTimer = null;
+    }
+  }
+
+  /**
+   * Restart background monitoring timers after a pause.
+   * Only proceeds if session.status === "running".
+   */
+  resumeMonitoring() {
+    if (this.status !== "running") return;
+    this._startHealthCheck();
+    this._startIdleCheck();
+  }
+
   // P1-25: Reset idle timer (keep alive)
   resetIdle() {
     this._idleStartTime = null;

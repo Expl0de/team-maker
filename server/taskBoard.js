@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { EventEmitter } from "events";
 import stateStore from "./stateStore.js";
 
 /**
@@ -23,10 +24,12 @@ import stateStore from "./stateStore.js";
 
 const VALID_STATUSES = ["pending", "assigned", "in_progress", "completed", "failed"];
 
-class TaskBoard {
+class TaskBoard extends EventEmitter {
   constructor() {
+    super();
     this._tasks = new Map(); // id -> task
     this._listeners = [];
+    this._settledTeams = new Set(); // guard: track teams already emitted all-tasks-settled
   }
 
   /**
@@ -69,6 +72,8 @@ class TaskBoard {
 
     this._tasks.set(task.id, task);
     stateStore.set(`tasks.${task.id}`, task);
+    // Reset settled guard so a future settle can emit again
+    if (task.teamId) this._settledTeams.delete(task.teamId);
     this._emit("task-created", task);
     return task;
   }
@@ -132,6 +137,7 @@ class TaskBoard {
 
     stateStore.set(`tasks.${taskId}`, task);
     this._emit("task-completed", task);
+    this._checkAllSettled(task.teamId);
     return { task };
   }
 
@@ -154,6 +160,7 @@ class TaskBoard {
 
     stateStore.set(`tasks.${taskId}`, task);
     this._emit("task-failed", task);
+    this._checkAllSettled(task.teamId);
     return { task };
   }
 
@@ -172,6 +179,8 @@ class TaskBoard {
     task.updatedAt = new Date().toISOString();
 
     stateStore.set(`tasks.${taskId}`, task);
+    // Reset settled guard since a task is back in play
+    if (task.teamId) this._settledTeams.delete(task.teamId);
     this._emit("task-retried", task);
     return { task };
   }
@@ -259,6 +268,20 @@ class TaskBoard {
       }
     }
     return unmet;
+  }
+
+  /**
+   * Check whether all tasks for a team have settled (completed/failed).
+   * Emits "all-tasks-settled" once per settle event. Guard resets when new tasks arrive.
+   */
+  _checkAllSettled(teamId) {
+    if (!teamId) return;
+    if (this._settledTeams.has(teamId)) return; // already emitted for this settle cycle
+    const summary = this.getBoardSummary(teamId);
+    if (summary.total > 0 && summary.pending === 0 && summary.assigned === 0 && summary.in_progress === 0) {
+      this._settledTeams.add(teamId);
+      this.emit("all-tasks-settled", { teamId });
+    }
   }
 
   _emit(event, task) {

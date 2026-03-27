@@ -396,25 +396,46 @@ function createTerminal(containerEl) {
 function renderTeamItem(team) {
   const el = document.createElement("div");
   const isStopped = team.status === "stopped";
-  el.className = "team-item" + (isStopped ? " stopped" : "");
+  const isPaused = team.status === "paused";
+  el.className = "team-item" + (isStopped ? " stopped" : "") + (isPaused ? " paused" : "");
   el.dataset.teamId = team.id;
+
+  let badge;
+  if (isStopped) {
+    badge = '<span class="team-item-badge stopped">stopped</span>';
+  } else if (isPaused) {
+    badge = '<span class="team-item-badge paused">paused</span>';
+  } else {
+    badge = `<span class="team-item-badge">${team.agentIds.length} agent${team.agentIds.length !== 1 ? "s" : ""}</span>`;
+  }
+
+  let actionBtn = "";
+  if (isStopped) {
+    actionBtn = '<button class="relaunch-team-btn" title="Re-launch team">&#8635;</button>';
+  } else if (isPaused) {
+    actionBtn = '<button class="resume-team-btn" title="Resume team">&#9654;</button>';
+  } else {
+    actionBtn = '<button class="pause-team-btn" title="Pause team">&#9646;&#9646;</button>';
+  }
+
   el.innerHTML = `
     <div class="team-item-info">
       <span class="team-item-name">${team.name}</span>
-      ${isStopped
-        ? '<span class="team-item-badge stopped">stopped</span>'
-        : `<span class="team-item-badge">${team.agentIds.length} agent${team.agentIds.length !== 1 ? "s" : ""}</span>`
-      }
+      ${badge}
       <span class="team-item-tokens"></span>
     </div>
     <div class="team-item-actions">
       <button class="export-team-btn" title="Export team config">&#8615;</button>
-      ${isStopped ? '<button class="relaunch-team-btn" title="Re-launch team">&#8635;</button>' : ""}
+      ${actionBtn}
       <button class="delete-team-btn" title="Delete team">&times;</button>
     </div>
   `;
   el.addEventListener("click", (e) => {
-    if (!e.target.classList.contains("delete-team-btn") && !e.target.classList.contains("relaunch-team-btn") && !e.target.classList.contains("export-team-btn")) {
+    if (!e.target.classList.contains("delete-team-btn") &&
+        !e.target.classList.contains("relaunch-team-btn") &&
+        !e.target.classList.contains("pause-team-btn") &&
+        !e.target.classList.contains("resume-team-btn") &&
+        !e.target.classList.contains("export-team-btn")) {
       selectTeam(team.id);
     }
   });
@@ -431,6 +452,20 @@ function renderTeamItem(team) {
     relaunchBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       relaunchTeam(team.id);
+    });
+  }
+  const pauseBtn = el.querySelector(".pause-team-btn");
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      pauseTeam(team.id);
+    });
+  }
+  const resumeBtn = el.querySelector(".resume-team-btn");
+  if (resumeBtn) {
+    resumeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      resumeTeam(team.id);
     });
   }
   return el;
@@ -455,9 +490,9 @@ function selectTeam(teamId) {
     el.classList.toggle("active", el.dataset.teamId === teamId);
   });
 
-  // Enable/disable new agent button (disabled for stopped teams)
+  // Enable/disable new agent button (disabled for stopped or paused teams)
   const selectedTeam = teamId ? teams.get(teamId) : null;
-  newAgentBtn.disabled = !teamId || (selectedTeam && selectedTeam.status === "stopped");
+  newAgentBtn.disabled = !teamId || (selectedTeam && (selectedTeam.status === "stopped" || selectedTeam.status === "paused"));
 
   // Create meta-tabs if needed
   const tabConfigs = [
@@ -522,6 +557,10 @@ function selectTeam(teamId) {
     if (team && team.status === "stopped") {
       activeSessionId = null;
       emptyState.innerHTML = `<p>Team "${team.name}" is stopped</p><p>Click the <strong>&#8635;</strong> button in the sidebar to re-launch it</p>`;
+      emptyState.style.display = "";
+    } else if (team && team.status === "paused") {
+      activeSessionId = null;
+      emptyState.innerHTML = `<p>Team "${team.name}" is paused</p><p>Click the <strong>&#9654;</strong> button in the sidebar to resume it</p>`;
       emptyState.style.display = "";
     } else if (team && team.agentIds.length > 0) {
       switchToTeamTab();
@@ -2318,11 +2357,11 @@ function handleAgentIdleEvent(msg) {
   handledIdleEvents.add(dedupeKey);
 
   if (event.type === "agent_idle_warning") {
-    // P1-16: Don't show idle toast for already-stopped teams
+    // P1-16: Don't show idle toast for already-stopped or paused teams
     const session = sessions.get(event.sessionId);
     if (session && session.teamId) {
       const team = teams.get(session.teamId);
-      if (team && team.status === "stopped") return;
+      if (team && (team.status === "stopped" || team.status === "paused")) return;
     }
     // Dim the tab and show idle badge
     if (session && session.tabEl) {
@@ -2363,11 +2402,11 @@ function handleAgentIdleEvent(msg) {
   }
 
   if (event.type === "agent_idle_killed") {
-    // P1-16: Don't show idle kill toast for already-stopped teams
+    // P1-16: Don't show idle kill toast for already-stopped or paused teams
     const killedSession = sessions.get(event.sessionId);
     if (killedSession && killedSession.teamId) {
       const team = teams.get(killedSession.teamId);
-      if (team && team.status === "stopped") return;
+      if (team && (team.status === "stopped" || team.status === "paused")) return;
     }
     // Mark session as exited in local state
     if (killedSession && killedSession.tabEl) {
@@ -2622,6 +2661,50 @@ function handleTeamUpdate(msg) {
       if (msg.teamId === activeTeamId && teamTabActive) {
         renderTeamFlowGraph();
       }
+      break;
+    }
+    case "team-paused": {
+      const team = teams.get(msg.teamId);
+      if (team) team.status = "paused";
+      // Re-render sidebar item
+      const pausedSideEl = teamList.querySelector(`[data-team-id="${msg.teamId}"]`);
+      if (pausedSideEl && team) {
+        pausedSideEl.replaceWith(renderTeamItem({ id: msg.teamId, name: team.name, agentIds: team.agentIds, status: "paused" }));
+      }
+      if (msg.teamId === activeTeamId) {
+        // Stop usage auto-refresh
+        if (usageRefreshInterval) {
+          clearInterval(usageRefreshInterval);
+          usageRefreshInterval = null;
+        }
+        // Update new-agent button
+        newAgentBtn.disabled = true;
+        // Update empty state if visible
+        if (team && emptyState.style.display !== "none") {
+          emptyState.innerHTML = `<p>Team "${team.name}" is paused</p><p>Click the <strong>&#9654;</strong> button in the sidebar to resume it</p>`;
+        }
+      }
+      if (msg.source === "auto") {
+        showToast("Team paused — all tasks completed");
+      }
+      statusText.textContent = `Team paused`;
+      break;
+    }
+    case "team-resumed": {
+      const team = teams.get(msg.teamId);
+      if (team) team.status = "running";
+      // Re-render sidebar item
+      const resumedSideEl = teamList.querySelector(`[data-team-id="${msg.teamId}"]`);
+      if (resumedSideEl && team) {
+        resumedSideEl.replaceWith(renderTeamItem({ id: msg.teamId, name: team.name, agentIds: team.agentIds, status: "running" }));
+      }
+      if (msg.teamId === activeTeamId) {
+        // Update new-agent button
+        newAgentBtn.disabled = false;
+        // Re-select team to update UI state
+        selectTeam(msg.teamId);
+      }
+      statusText.textContent = `Team resumed`;
       break;
     }
     case "team-relaunched": {
@@ -3247,6 +3330,32 @@ async function relaunchTeam(teamId) {
     selectTeam(teamId);
 
     statusText.textContent = `Team "${data.team.name}" re-launched`;
+  } catch (err) {
+    statusText.textContent = `Error: ${err.message}`;
+  }
+}
+
+async function pauseTeam(teamId) {
+  try {
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/pause`, { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json();
+      statusText.textContent = `Error: ${err.error}`;
+    }
+    // UI update handled by WS team-paused broadcast
+  } catch (err) {
+    statusText.textContent = `Error: ${err.message}`;
+  }
+}
+
+async function resumeTeam(teamId) {
+  try {
+    const res = await fetchWithTimeout(`/api/teams/${teamId}/resume`, { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json();
+      statusText.textContent = `Error: ${err.error}`;
+    }
+    // UI update handled by WS team-resumed broadcast
   } catch (err) {
     statusText.textContent = `Error: ${err.message}`;
   }

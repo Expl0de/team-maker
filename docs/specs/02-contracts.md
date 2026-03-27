@@ -249,6 +249,32 @@ Covers every API endpoint, every WebSocket message type (both directions), and e
 
 ---
 
+#### POST /api/teams/:teamId/pause — Pause Running Team
+> Status: [x] Done
+
+**Response** (200): `{ "ok": true, "team": Team }`
+**Errors**: 404 (Team not found), 400 (Team is not running)
+
+**Side Effects**:
+- Sets `team.status = "paused"` and persists to stateStore
+- For each live agent session: clears `_healthCheckInterval` and `_idleCheckTimer` (PTY stays alive)
+- Broadcasts `{ type: "team-update", event: "team-paused", teamId, source: "manual" | "auto" }`
+
+---
+
+#### POST /api/teams/:teamId/resume — Resume Paused Team
+> Status: [x] Done
+
+**Response** (200): `{ "ok": true, "team": Team }`
+**Errors**: 404 (Team not found), 400 (Team is not paused)
+
+**Side Effects**:
+- Sets `team.status = "running"` and persists to stateStore
+- For each live agent session (session.status === "running"): restarts health-check and idle-check intervals
+- Broadcasts `{ type: "team-update", event: "team-resumed", teamId }`
+
+---
+
 #### GET /api/teams/:teamId/model-routing — Get Model Routing
 > Status: [x] Done
 
